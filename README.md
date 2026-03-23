@@ -171,6 +171,11 @@ Optional profile:
 
 - `ai-local` adds Ollama on `http://localhost:11434`
 
+When the API runs in Docker, imported source paths must also be visible inside the `api` container. The default
+compose file bind-mounts your home directory read-only so imports like `/Users/<name>/...` continue to work from the
+UI. The API also exposes the current import roots in `/api/settings` so the UI can show which directories are
+reachable.
+
 Generated or managed service runtime concerns should live with the generated or managed project, not in this root
 compose file.
 

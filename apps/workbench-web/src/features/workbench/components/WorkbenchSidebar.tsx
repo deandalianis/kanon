@@ -31,6 +31,8 @@ export function WorkbenchSidebar({
   flashMessage: string;
 }) {
   const capabilityKeys = Object.keys(importForm.capabilities) as Array<keyof CapabilitySet>;
+  const importRoots = settings?.importRoots ?? [];
+  const sourcePathPlaceholder = importRoots.length ? `${importRoots[0]}/my-service` : "/Users/alice/code/my-service";
 
   return (
     <aside className="operator-rail">
@@ -77,7 +79,7 @@ export function WorkbenchSidebar({
         <SectionHeader eyebrow="Import" title="Register workspace" />
         <div className="field-stack">
           <label className="form-field">
-            <span>Name</span>
+            <span>Name (optional)</span>
             <input
               className="text-input"
               value={importForm.name}
@@ -90,8 +92,11 @@ export function WorkbenchSidebar({
               className="text-input"
               value={importForm.sourcePath}
               onChange={(event) => onImportFieldChange("sourcePath", event.target.value)}
-              placeholder="D:\\code\\my-service"
+              placeholder={sourcePathPlaceholder}
             />
+            {!!importRoots.length && (
+              <small className="field-hint">Visible to API: {importRoots.join(", ")}</small>
+            )}
           </label>
           <label className="form-field">
             <span>Service Name</span>
@@ -159,6 +164,10 @@ export function WorkbenchSidebar({
             <div className="runtime-row">
               <dt>Workspace Root</dt>
               <dd className="mono-text">{settings.workspaceRoot}</dd>
+            </div>
+            <div className="runtime-row">
+              <dt>Import Roots</dt>
+              <dd className="mono-text">{settings.importRoots.length ? settings.importRoots.join(", ") : "Not declared"}</dd>
             </div>
           </dl>
         ) : (

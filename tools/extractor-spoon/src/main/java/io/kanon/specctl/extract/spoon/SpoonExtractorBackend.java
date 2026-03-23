@@ -2,18 +2,28 @@ package io.kanon.specctl.extract.spoon;
 
 import io.kanon.specctl.core.extract.ExtractionRequest;
 import io.kanon.specctl.core.extract.ExtractionResult;
+import io.kanon.specctl.core.extract.ExtractionTypeNames;
 import io.kanon.specctl.core.extract.ExtractorBackend;
 import spoon.Launcher;
 import spoon.reflect.CtModel;
+import spoon.reflect.cu.SourcePosition;
+import spoon.reflect.declaration.CtAnnotationType;
+import spoon.reflect.declaration.CtClass;
+import spoon.reflect.declaration.CtEnum;
 import spoon.reflect.declaration.CtField;
+import spoon.reflect.declaration.CtInterface;
 import spoon.reflect.declaration.CtMethod;
+import spoon.reflect.declaration.CtRecord;
 import spoon.reflect.declaration.CtType;
+import spoon.reflect.reference.CtTypeReference;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public final class SpoonExtractorBackend implements ExtractorBackend {
     @Override
@@ -34,63 +44,47 @@ public final class SpoonExtractorBackend implements ExtractorBackend {
         List<ExtractionResult.Conflict> conflicts = new ArrayList<>();
 
         for (CtType<?> type : model.getAllTypes()) {
-            if (type.getPosition() == null || !type.isTopLevel()) {
+            if (!type.isTopLevel()) {
                 continue;
             }
             String qualifiedName = type.getQualifiedName();
+            String typePath = "/types/" + qualifiedName.replace('.', '/');
             facts.add(new ExtractionResult.Fact(
                     "type",
-                    "/types/" + qualifiedName.replace('.', '/'),
-                    Map.of("name", type.getSimpleName(), "kind", type.getClass().getSimpleName(), "structureOnly", true)
+                    typePath,
+                    Map.of("name", type.getSimpleName(), "kind", canonicalTypeKind(type), "structureOnly", true)
             ));
-            provenance.add(new ExtractionResult.Provenance(
-                    "/types/" + qualifiedName.replace('.', '/'),
-                    safeFile(type.getPosition().getFile()),
-                    qualifiedName,
-                    type.getPosition().getLine(),
-                    type.getPosition().getEndLine()
-            ));
+            provenanceFor(typePath, qualifiedName, type.getPosition()).ifPresent(provenance::add);
             for (CtField<?> field : type.getFields()) {
-                String fieldPath = "/types/" + qualifiedName.replace('.', '/') + "/fields/" + field.getSimpleName();
+                String fieldPath = typePath + "/fields/" + field.getSimpleName();
                 facts.add(new ExtractionResult.Fact(
                         "field",
                         fieldPath,
                         Map.of(
                                 "name", field.getSimpleName(),
-                                "type", field.getType().getSimpleName(),
+                                "type", renderType(field.getType()),
                                 "nullable", !field.isFinal(),
                                 "pk", field.getSimpleName().equalsIgnoreCase("id") || field.getSimpleName().endsWith("Id"),
                                 "structureOnly", true
                         )
                 ));
-                provenance.add(new ExtractionResult.Provenance(
-                        fieldPath,
-                        safeFile(field.getPosition().getFile()),
-                        qualifiedName + "#" + field.getSimpleName(),
-                        field.getPosition().getLine(),
-                        field.getPosition().getEndLine()
-                ));
+                provenanceFor(fieldPath, qualifiedName + "#" + field.getSimpleName(), field.getPosition()).ifPresent(provenance::add);
             }
             for (CtMethod<?> method : type.getMethods()) {
-                String methodPath = "/types/" + qualifiedName.replace('.', '/') + "/methods/" + method.getSimpleName();
+                String methodPath = typePath + "/methods/" + methodPathSegment(method);
                 Map<String, Object> attributes = new HashMap<>();
                 attributes.put("name", method.getSimpleName());
+                attributes.put("returnType", renderType(method.getType()));
                 attributes.put("parameterCount", method.getParameters().size());
                 attributes.put("parameters", method.getParameters().stream()
                         .map(parameter -> Map.of(
                                 "name", parameter.getSimpleName(),
-                                "type", parameter.getType().getSimpleName()
+                                "type", renderType(parameter.getType())
                         ))
                         .toList());
                 attributes.put("structureOnly", true);
                 facts.add(new ExtractionResult.Fact("method", methodPath, attributes));
-                provenance.add(new ExtractionResult.Provenance(
-                        methodPath,
-                        safeFile(method.getPosition().getFile()),
-                        qualifiedName + "#" + method.getSimpleName(),
-                        method.getPosition().getLine(),
-                        method.getPosition().getEndLine()
-                ));
+                provenanceFor(methodPath, qualifiedName + "#" + method.getSimpleName(), method.getPosition()).ifPresent(provenance::add);
             }
         }
 
@@ -98,7 +92,53 @@ public final class SpoonExtractorBackend implements ExtractorBackend {
         return new ExtractionResult(facts, provenance, confidence, conflicts);
     }
 
-    private String safeFile(File file) {
+    static Optional<ExtractionResult.Provenance> provenanceFor(String path, String symbol, SourcePosition position) {
+        if (position == null || !position.isValidPosition()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new ExtractionResult.Provenance(
+                    path,
+                    safeFile(position.getFile()),
+                    symbol,
+                    position.getLine(),
+                    position.getEndLine()
+            ));
+        } catch (UnsupportedOperationException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private static String safeFile(File file) {
         return file == null ? "<unknown>" : file.toString();
+    }
+
+    private String canonicalTypeKind(CtType<?> type) {
+        if (type instanceof CtEnum<?>) {
+            return "enum";
+        }
+        if (type instanceof CtAnnotationType<?>) {
+            return "annotation";
+        }
+        if (type instanceof CtRecord) {
+            return "record";
+        }
+        if (type instanceof CtInterface<?>) {
+            return "interface";
+        }
+        if (type instanceof CtClass<?>) {
+            return "class";
+        }
+        return "type";
+    }
+
+    private String renderType(CtTypeReference<?> typeReference) {
+        return ExtractionTypeNames.canonicalize(typeReference == null ? null : typeReference.toString());
+    }
+
+    private String methodPathSegment(CtMethod<?> method) {
+        return method.getSimpleName() + "(" + method.getParameters().stream()
+                .map(parameter -> renderType(parameter.getType()))
+                .collect(Collectors.joining(",")) + ")";
     }
 }

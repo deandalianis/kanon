@@ -15,5 +15,18 @@ class JavaParserExtractorBackendTest {
 
         assertThat(result.facts()).isNotEmpty();
         assertThat(result.facts().stream().map(ExtractionResult.Fact::kind)).contains("type", "method");
+        assertThat(result.facts().stream()
+                .filter(fact -> "type".equals(fact.kind()))
+                .findFirst()
+                .orElseThrow()
+                .attributes())
+                .containsEntry("structureOnly", true)
+                .containsKey("kind");
+        assertThat(result.facts().stream()
+                .filter(fact -> "method".equals(fact.kind()))
+                .findFirst()
+                .orElseThrow()
+                .attributes())
+                .containsKeys("returnType", "parameters", "structureOnly");
     }
 }

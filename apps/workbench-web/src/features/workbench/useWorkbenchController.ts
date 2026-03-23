@@ -45,6 +45,10 @@ function persistProjectSelection(projectId: string) {
   localStorage.setItem(PROJECT_STORAGE_KEY, projectId);
 }
 
+function clearProjectSelection() {
+  localStorage.removeItem(PROJECT_STORAGE_KEY);
+}
+
 export function useWorkbenchController() {
   const queryClient = useQueryClient();
   const [selectedProjectId, setSelectedProjectId] = useState<string>(() => localStorage.getItem(PROJECT_STORAGE_KEY) ?? "");
@@ -70,7 +74,7 @@ export function useWorkbenchController() {
   });
 
   const selectedProject = projectsQuery.data?.find((project) => project.id === selectedProjectId) ?? null;
-  const hasProject = Boolean(selectedProjectId);
+  const hasProject = Boolean(selectedProject);
 
   const runsQuery = useQuery({
     queryKey: workbenchKeys.runs(selectedProjectId),
@@ -146,7 +150,15 @@ export function useWorkbenchController() {
   });
 
   useEffect(() => {
-    if (!projectsQuery.data?.length) {
+    if (!projectsQuery.data) {
+      return;
+    }
+
+    if (!projectsQuery.data.length) {
+      if (selectedProjectId) {
+        setSelectedProjectId("");
+        clearProjectSelection();
+      }
       return;
     }
 

@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
 @Service
 public class WorkspaceService {
@@ -24,16 +25,25 @@ public class WorkspaceService {
     }
 
     public PlatformTypes.WorkspaceRef importProject(String name, Path sourcePath, PlatformTypes.ProjectProfile profile) {
-        if (!Files.exists(sourcePath)) {
-            throw new IllegalArgumentException("Source path does not exist: " + sourcePath);
+        Path resolvedSourcePath = sourcePath.toAbsolutePath().normalize();
+        if (!Files.exists(resolvedSourcePath)) {
+            throw new IllegalArgumentException(missingSourcePathMessage(resolvedSourcePath));
         }
-        String normalizedName = name == null || name.isBlank() ? sourcePath.getFileName().toString() : name;
-        var existing = projectRepository.findByName(normalizedName);
-        if (existing.isPresent()) {
-            return toWorkspaceRef(existing.get());
+        if (!Files.isDirectory(resolvedSourcePath)) {
+            throw new IllegalArgumentException("Source path must be a directory: " + resolvedSourcePath);
+        }
+        var existingBySourcePath = projectRepository.findBySourcePath(resolvedSourcePath.toString());
+        if (existingBySourcePath.isPresent()) {
+            return toWorkspaceRef(existingBySourcePath.get());
+        }
+
+        String normalizedName = name == null || name.isBlank() ? resolvedSourcePath.getFileName().toString() : name;
+        var existingByName = projectRepository.findByName(normalizedName);
+        if (existingByName.isPresent()) {
+            throw new IllegalArgumentException("Project name is already registered for a different source path: " + normalizedName);
         }
         String slug = slugify(normalizedName);
-        Path workspacePath = properties.workspaceRoot().resolve(slug);
+        Path workspacePath = resolveWorkspacePath(slug);
         try {
             Files.createDirectories(workspacePath);
             Files.createDirectories(workspacePath.resolve("specs/approved"));
@@ -42,16 +52,16 @@ public class WorkspaceService {
             Files.createDirectories(workspacePath.resolve("runs"));
             Files.createDirectories(workspacePath.resolve("contracts/baseline"));
             Files.createDirectories(workspacePath.resolve("generated"));
-            copyIfExists(sourcePath.resolve("specs/service.yaml"), workspacePath.resolve("specs/approved/service.yaml"));
+            copyIfExists(resolvedSourcePath.resolve("specs/service.yaml"), workspacePath.resolve("specs/approved/service.yaml"));
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to initialize workspace", exception);
         }
 
         ProjectEntity entity = new ProjectEntity();
         entity.setName(normalizedName);
-        entity.setSourcePath(sourcePath.toAbsolutePath().toString());
+        entity.setSourcePath(resolvedSourcePath.toString());
         entity.setWorkspacePath(workspacePath.toAbsolutePath().toString());
-        entity.setGitBacked(Files.exists(sourcePath.resolve(".git")));
+        entity.setGitBacked(Files.exists(resolvedSourcePath.resolve(".git")));
         entity.setServiceName(profile.serviceName());
         entity.setBasePackage(profile.basePackage());
         entity.setFramework(profile.framework());
@@ -62,7 +72,8 @@ public class WorkspaceService {
     }
 
     public PlatformTypes.WorkspaceRef getWorkspace(String projectId) {
-        return toWorkspaceRef(projectRepository.findById(projectId).orElseThrow());
+        return toWorkspaceRef(projectRepository.findById(projectId)
+                .orElseThrow(() -> new WorkspaceNotFoundException(projectId)));
     }
 
     public java.util.List<PlatformTypes.WorkspaceRef> listWorkspaces() {
@@ -109,5 +120,28 @@ public class WorkspaceService {
 
     private String slugify(String value) {
         return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
+    }
+
+    private Path resolveWorkspacePath(String slug) {
+        Path candidate = properties.workspaceRoot().resolve(slug);
+        int suffix = 2;
+        while (Files.exists(candidate)) {
+            candidate = properties.workspaceRoot().resolve(slug + "-" + suffix);
+            suffix++;
+        }
+        return candidate;
+    }
+
+    private String missingSourcePathMessage(Path sourcePath) {
+        if (properties.importRoots().isEmpty()) {
+            return "Source path is not accessible from the API runtime: " + sourcePath;
+        }
+
+        String visibleRoots = properties.importRoots().stream()
+                .map(Path::toString)
+                .collect(Collectors.joining(", "));
+        return "Source path is not accessible from the API runtime: " + sourcePath
+                + ". Visible import roots: " + visibleRoots
+                + ". If the API is running in Docker, add a bind mount for the parent directory or choose a path under one of those roots.";
     }
 }

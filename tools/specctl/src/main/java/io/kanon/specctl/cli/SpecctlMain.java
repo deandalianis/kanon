@@ -136,8 +136,7 @@ public final class SpecctlMain implements Runnable {
         public Integer call() throws IOException {
             ExtractionRequest request = new ExtractionRequest(project, false);
             ExtractionResult javaParser = new JavaParserExtractorBackend().extract(request);
-            ExtractionResult spoon = new SpoonExtractorBackend().extract(request);
-            ExtractionResult merged = new ExtractionMerger().merge(javaParser, spoon);
+            ExtractionResult merged = mergeSupplementalSpoonExtraction(request, javaParser);
             Files.createDirectories(out.getParent());
             Files.writeString(out, JsonSupport.stableJson(merged));
 
@@ -148,6 +147,40 @@ public final class SpecctlMain implements Runnable {
             }
             System.out.println("Extracted " + merged.facts().size() + " fact(s)");
             return 0;
+        }
+
+        private ExtractionResult mergeSupplementalSpoonExtraction(ExtractionRequest request, ExtractionResult javaParser) {
+            try {
+                ExtractionResult spoon = new SpoonExtractorBackend().extract(request);
+                return new ExtractionMerger().merge(javaParser, spoon);
+            } catch (RuntimeException exception) {
+                return new ExtractionResult(
+                        javaParser.facts(),
+                        javaParser.provenance(),
+                        javaParser.confidenceScore(),
+                        mergeConflicts(javaParser, new ExtractionResult.Conflict(
+                                request.sourceRoot().toString(),
+                                "javaparser",
+                                "spoon",
+                                "Spoon extractor failed: " + rootMessage(exception),
+                                false
+                        ))
+                );
+            }
+        }
+
+        private List<ExtractionResult.Conflict> mergeConflicts(ExtractionResult extractionResult, ExtractionResult.Conflict conflict) {
+            return java.util.stream.Stream.concat(extractionResult.conflicts().stream(), java.util.stream.Stream.of(conflict)).toList();
+        }
+
+        private String rootMessage(Throwable throwable) {
+            Throwable current = throwable;
+            while (current.getCause() != null) {
+                current = current.getCause();
+            }
+            return current.getMessage() == null || current.getMessage().isBlank()
+                    ? current.getClass().getSimpleName()
+                    : current.getMessage();
         }
     }
 

@@ -6,4 +6,6 @@ import java.util.Optional;
 
 public interface ProjectRepository extends JpaRepository<ProjectEntity, String> {
     Optional<ProjectEntity> findByName(String name);
+
+    Optional<ProjectEntity> findBySourcePath(String sourcePath);
 }

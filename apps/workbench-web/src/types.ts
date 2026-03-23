@@ -24,6 +24,7 @@ export type WorkspaceRef = {
 
 export type RuntimeSettings = {
   workspaceRoot: string;
+  importRoots: string[];
   aiProvider: string;
   aiModel: string;
   hostedConfigured: boolean;

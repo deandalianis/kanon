@@ -37,8 +37,10 @@ services:
       KANON_AI_HOSTED_MODEL: ${KANON_AI_HOSTED_MODEL:-gpt-4o-mini}
       KANON_AI_OLLAMA_BASE_URL: http://ollama:11434
       KANON_AI_OLLAMA_MODEL: ${KANON_AI_OLLAMA_MODEL:-qwen2.5-coder:7b-instruct}
+      KANON_IMPORT_ROOTS: /workspace,${HOME}
     volumes:
       - ..:/workspace
+      - ${HOME}:${HOME}:ro
     ports:
       - "8080:8080"
     healthcheck:

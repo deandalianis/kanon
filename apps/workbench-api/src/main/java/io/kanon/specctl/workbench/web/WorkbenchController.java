@@ -221,7 +221,7 @@ public class WorkbenchController {
     }
 
     public record ImportProjectRequest(
-            @NotBlank String name,
+            String name,
             @NotBlank String sourcePath,
             @NotBlank String serviceName,
             @NotBlank String basePackage,

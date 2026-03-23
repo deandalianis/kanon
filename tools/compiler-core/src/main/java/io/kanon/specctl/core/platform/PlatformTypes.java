@@ -240,11 +240,15 @@ public final class PlatformTypes {
 
     public record RuntimeSettings(
             String workspaceRoot,
+            List<String> importRoots,
             String aiProvider,
             String aiModel,
             boolean hostedConfigured,
             boolean ollamaConfigured,
             boolean neo4jConfigured
     ) {
+        public RuntimeSettings {
+            importRoots = MoreCollections.immutableList(importRoots);
+        }
     }
 }

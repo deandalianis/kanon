@@ -349,6 +349,13 @@ code {
   color: var(--muted-strong);
 }
 
+.field-hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .text-input,
 .text-area {
   padding: 12px 14px;

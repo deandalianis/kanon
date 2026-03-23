@@ -72,8 +72,7 @@ public class WorkbenchWorkflowService {
             Path sourceRoot = resolveSourceRoot(Path.of(workspace.sourcePath()));
             ExtractionRequest request = new ExtractionRequest(sourceRoot, false);
             ExtractionResult javaParser = new JavaParserExtractorBackend().extract(request);
-            ExtractionResult spoon = new SpoonExtractorBackend().extract(request);
-            ExtractionResult merged = extractionMerger.merge(javaParser, spoon);
+            ExtractionResult merged = mergeSupplementalSpoonExtraction(request, javaParser);
             Path artifactPath = workspaceService.workspaceDir(projectId).resolve("runs/" + run.getId() + "-extraction.json");
             Files.writeString(artifactPath, JsonSupport.stableJson(merged));
 
@@ -93,6 +92,7 @@ public class WorkbenchWorkflowService {
             List<String> warnings = merged.conflicts().stream()
                     .filter(conflict -> !conflict.fatal())
                     .map(ExtractionResult.Conflict::message)
+                    .distinct()
                     .sorted()
                     .toList();
             runService.succeed(run, artifactPath.toString(), merged, "Extraction completed");
@@ -268,10 +268,12 @@ public class WorkbenchWorkflowService {
         };
         return new PlatformTypes.RuntimeSettings(
                 properties.workspaceRoot().toAbsolutePath().toString(),
+                properties.importRoots().stream().map(Path::toString).toList(),
                 llmProviderRouter.activeProvider().providerName(),
                 activeModel,
-                properties.ai().hostedBaseUrl() != null && properties.ai().hostedApiKey() != null,
-                properties.ai().ollamaBaseUrl() != null,
+                properties.ai().hostedBaseUrl() != null && !properties.ai().hostedBaseUrl().isBlank()
+                        && properties.ai().hostedApiKey() != null && !properties.ai().hostedApiKey().isBlank(),
+                properties.ai().ollamaBaseUrl() != null && !properties.ai().ollamaBaseUrl().isBlank(),
                 properties.neo4j().uri() != null && !properties.neo4j().uri().isBlank()
         );
     }
@@ -546,6 +548,33 @@ public class WorkbenchWorkflowService {
     private Path resolveSourceRoot(Path sourcePath) {
         Path conventional = sourcePath.resolve("src/main/java");
         return Files.exists(conventional) ? conventional : sourcePath;
+    }
+
+    private ExtractionResult mergeSupplementalSpoonExtraction(ExtractionRequest request, ExtractionResult javaParser) {
+        try {
+            ExtractionResult spoon = new SpoonExtractorBackend().extract(request);
+            return extractionMerger.merge(javaParser, spoon);
+        } catch (RuntimeException exception) {
+            List<ExtractionResult.Conflict> conflicts = new ArrayList<>(javaParser.conflicts());
+            conflicts.add(new ExtractionResult.Conflict(
+                    request.sourceRoot().toString(),
+                    "javaparser",
+                    "spoon",
+                    "Spoon extractor failed: " + rootMessage(exception),
+                    false
+            ));
+            return new ExtractionResult(javaParser.facts(), javaParser.provenance(), javaParser.confidenceScore(), conflicts);
+        }
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null || current.getMessage().isBlank()
+                ? current.getClass().getSimpleName()
+                : current.getMessage();
     }
 
     private String readOrEmpty(Path path) {
