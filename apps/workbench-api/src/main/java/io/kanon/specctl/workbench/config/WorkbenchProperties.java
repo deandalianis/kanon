@@ -1,0 +1,31 @@
+package io.kanon.specctl.workbench.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.nio.file.Path;
+
+@ConfigurationProperties(prefix = "kanon")
+public record WorkbenchProperties(
+        Path workspaceRoot,
+        Neo4j neo4j,
+        Ai ai
+) {
+    public WorkbenchProperties {
+        workspaceRoot = workspaceRoot == null ? Path.of("runtime/workspaces") : workspaceRoot;
+        neo4j = neo4j == null ? new Neo4j(null, "neo4j", "password") : neo4j;
+        ai = ai == null ? new Ai("heuristic", null, null, null, "gpt-4o-mini", "qwen2.5-coder:7b-instruct") : ai;
+    }
+
+    public record Neo4j(String uri, String username, String password) {
+    }
+
+    public record Ai(
+            String provider,
+            String hostedBaseUrl,
+            String hostedApiKey,
+            String ollamaBaseUrl,
+            String hostedModel,
+            String ollamaModel
+    ) {
+    }
+}

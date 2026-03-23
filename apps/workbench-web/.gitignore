@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# TypeScript / Vite caches
+*.tsbuildinfo
+.vite/
+
+# Local env overrides
+.env
+.env.*
+!.env.example

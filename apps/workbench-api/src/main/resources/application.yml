@@ -1,0 +1,51 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: kanon-workbench-api
+  datasource:
+    url: ${KANON_DATASOURCE_URL:jdbc:h2:file:./build/workbench-db;MODE=PostgreSQL;AUTO_SERVER=TRUE}
+    username: ${KANON_DATASOURCE_USERNAME:sa}
+    password: ${KANON_DATASOURCE_PASSWORD:}
+    hikari:
+      auto-commit: false
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  h2:
+    console:
+      enabled: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  health:
+    neo4j:
+      enabled: false
+
+springdoc:
+  api-docs:
+    path: /api/docs
+  swagger-ui:
+    path: /swagger
+
+kanon:
+  workspace-root: ${KANON_WORKSPACE_ROOT:./runtime/workspaces}
+  neo4j:
+    uri: ${KANON_NEO4J_URI:}
+    username: ${KANON_NEO4J_USERNAME:neo4j}
+    password: ${KANON_NEO4J_PASSWORD:password}
+  ai:
+    provider: ${KANON_AI_PROVIDER:heuristic}
+    hosted-base-url: ${KANON_AI_HOSTED_BASE_URL:}
+    hosted-api-key: ${KANON_AI_HOSTED_API_KEY:}
+    ollama-base-url: ${KANON_AI_OLLAMA_BASE_URL:http://ollama:11434}
+    hosted-model: ${KANON_AI_HOSTED_MODEL:gpt-4o-mini}
+    ollama-model: ${KANON_AI_OLLAMA_MODEL:qwen2.5-coder:7b-instruct}

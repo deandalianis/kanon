@@ -1,0 +1,94 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: apps/workbench-web/Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ > /dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/workbench-api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    environment:
+      KANON_WORKSPACE_ROOT: /workspace/runtime/workspaces
+      KANON_DATASOURCE_URL: jdbc:postgresql://postgres:5432/kanon
+      KANON_DATASOURCE_USERNAME: kanon
+      KANON_DATASOURCE_PASSWORD: kanon
+      KANON_NEO4J_URI: bolt://neo4j:7687
+      KANON_NEO4J_USERNAME: neo4j
+      KANON_NEO4J_PASSWORD: kanonpassword
+      KANON_AI_PROVIDER: ${KANON_AI_PROVIDER:-heuristic}
+      KANON_AI_HOSTED_BASE_URL: ${KANON_AI_HOSTED_BASE_URL:-}
+      KANON_AI_HOSTED_API_KEY: ${KANON_AI_HOSTED_API_KEY:-}
+      KANON_AI_HOSTED_MODEL: ${KANON_AI_HOSTED_MODEL:-gpt-4o-mini}
+      KANON_AI_OLLAMA_BASE_URL: http://ollama:11434
+      KANON_AI_OLLAMA_MODEL: ${KANON_AI_OLLAMA_MODEL:-qwen2.5-coder:7b-instruct}
+    volumes:
+      - ..:/workspace
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health > /dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kanon
+      POSTGRES_USER: kanon
+      POSTGRES_PASSWORD: kanon
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kanon -d kanon"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5.22-community
+    environment:
+      NEO4J_AUTH: neo4j/kanonpassword
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 512m
+    volumes:
+      - neo4j-data:/data
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -a bolt://localhost:7687 -u neo4j -p kanonpassword 'RETURN 1' > /dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 12
+
+  ollama:
+    image: ollama/ollama:0.6.2
+    profiles: ["ai-local"]
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+
+volumes:
+  postgres-data:
+  neo4j-data:
+  ollama-data:

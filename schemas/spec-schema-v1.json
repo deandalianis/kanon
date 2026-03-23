@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acme.example/spec-schema-v1.json",
+  "title": "Spec Compiler Service Specification",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "specVersion",
+    "generatorLock",
+    "service",
+    "boundedContexts"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "specVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generatorLock": {
+      "type": "object",
+      "required": [
+        "specctl",
+        "targets"
+      ],
+      "properties": {
+        "specctl": {
+          "type": "string"
+        },
+        "targets": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "service": {
+      "type": "object",
+      "required": [
+        "name",
+        "basePackage"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "basePackage": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "boundedContexts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": true
+}

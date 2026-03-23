@@ -1,0 +1,12 @@
+migrations:
+  - type: RENAME_FIELD
+    boundedContext: core
+    aggregate: TaskRequest
+    entity: TaskRequestEntity
+    from: employeeId
+    to: staffId
+  - type: REWRITE_RULE_EXPRESSION
+    aggregate: TaskRequest
+    command: SubmitTask
+    from: DRAFT
+    to: SUBMITTED

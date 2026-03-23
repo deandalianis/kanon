@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acme.example/migration-schema-v1.json",
+  "title": "Forward Only Spec Migrations",
+  "type": "object",
+  "required": ["migrations"],
+  "properties": {
+    "migrations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "RENAME_FIELD",
+              "RENAME_AGGREGATE",
+              "RENAME_COMMAND",
+              "RENAME_EVENT",
+              "REWRITE_RULE_EXPRESSION"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

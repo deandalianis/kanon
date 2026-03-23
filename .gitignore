@@ -1,0 +1,19 @@
+# Gradle / JVM
+.gradle/
+**/build/
+**/out/
+*.class
+
+# Local vendored toolchains
+.tools/
+
+# IntelliJ / local IDE state
+.idea/
+*.iml
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

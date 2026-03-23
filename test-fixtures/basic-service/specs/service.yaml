@@ -1,0 +1,110 @@
+schemaVersion: 1
+specVersion: 0.1.0
+generatorLock:
+  specctl: 0.1.0
+  targets:
+    springBoot: "3.3.0"
+service:
+  name: test-service
+  basePackage: io.kanon.fixture
+generation:
+  enabled: true
+  targets:
+    springMvcControllers: true
+    validation: true
+    persistenceJpa: true
+    flywayMigrations: true
+    kafkaPublishers: true
+    kafkaConsumers: true
+extraction:
+  includeExternalDependencies: false
+performance:
+  pagination:
+    maxPageSize: 100
+  batch:
+    maxBatchSize: 500
+  cache:
+    enabled: true
+boundedContexts:
+  - name: core
+    aggregates:
+      - name: TaskRequest
+        id:
+          type: UUID
+          field: requestId
+        entities:
+          - name: TaskRequestEntity
+            table: task_request
+            fields:
+              - name: requestId
+                type: UUID
+                pk: true
+              - name: employeeId
+                type: UUID
+                nullable: false
+              - name: startDate
+                type: LocalDate
+                nullable: false
+              - name: endDate
+                type: LocalDate
+                nullable: false
+              - name: status
+                type: enum(TaskStatus)
+                nullable: false
+        stateMachine:
+          name: TaskStatus
+          states: [DRAFT, SUBMITTED, APPROVED, REJECTED]
+          initial: DRAFT
+          transitions:
+            - on: SubmitTask
+              from: [DRAFT]
+              to: SUBMITTED
+        commands:
+          - name: SubmitTask
+            http:
+              method: POST
+              path: /tasks/{requestId}/submit
+            rules:
+              - id: TS-001
+                type: VALIDATION
+                ensure: "endDate >= startDate"
+                severity: ERROR
+              - id: TS-002
+                type: GUARD
+                ensure: "status == DRAFT"
+                severity: ERROR
+            emits: [TaskSubmitted]
+        events:
+          - name: TaskSubmitted
+            topic: task.submitted
+            schema:
+              format: jsonschema
+              version: 1
+            payload:
+              - name: requestId
+                type: UUID
+              - name: employeeId
+                type: UUID
+              - name: at
+                type: Instant
+        hooks:
+          - name: beforeCreate
+            signature: "void beforeCreate(CreateTaskRequest req)"
+            optional: true
+security:
+  roles: [USER, ADMIN]
+  policies:
+    - command: SubmitTask
+      preAuthorize:
+        - "hasRole('USER')"
+observability:
+  metrics:
+    commandTimers: true
+messaging:
+  delivery: AT_LEAST_ONCE
+  idempotency:
+    key: requestId
+  retry:
+    attempts: 3
+    backoff: EXPONENTIAL
+  dlq: task.dlq
