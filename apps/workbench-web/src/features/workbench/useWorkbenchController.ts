@@ -26,8 +26,6 @@ import {
   type StoryFormState
 } from "./types";
 import {
-  buildFlowEdges,
-  buildFlowNodes,
   buildStageSummaries,
   countContractDelta,
   describeCurrentBlocker,
@@ -128,13 +126,13 @@ export function useWorkbenchController() {
   const irQuery = useQuery({
     queryKey: workbenchKeys.ir(selectedProjectId),
     queryFn: () => api<unknown>(`/api/projects/${selectedProjectId}/ir`),
-    enabled: hasProject && hasAnySpec && (activeStage === "ir" || activeStage === "graph")
+    enabled: hasProject && hasAnySpec && (activeStage === "spec" || activeStage === "graph")
   });
 
   const contractDiffQuery = useQuery({
     queryKey: workbenchKeys.contracts(selectedProjectId),
     queryFn: () => api<ContractDiff>(`/api/projects/${selectedProjectId}/contracts/diff`),
-    enabled: hasProject && hasAnySpec && (activeStage === "contracts" || hasGenerationRun)
+    enabled: hasProject && hasAnySpec && (activeStage === "drift" || hasGenerationRun)
   });
 
   const driftQuery = useQuery({
@@ -216,8 +214,6 @@ export function useWorkbenchController() {
   const approvedSpecContent = approvedSpecQuery.data?.content ?? "";
   const draftSpecContent = draftSpecQuery.data?.content ?? "";
   const proposalPatch = selectedProposal?.specPatch || draftSpecContent;
-  const graphNodes = buildFlowNodes(graphQuery.data);
-  const graphEdges = buildFlowEdges(graphQuery.data);
   const graphSummary = summarizeGraph(graphQuery.data);
   const topFacts = (extractionQuery.data?.facts ?? []).slice(0, 8);
   const topEvidence = (extractionQuery.data?.provenance ?? []).slice(0, 8);
@@ -297,18 +293,14 @@ export function useWorkbenchController() {
     }));
   }
 
-  function updateCapability(key: keyof CapabilitySet) {
-    setImportForm((current) => ({
-      ...current,
-      capabilities: {
-        ...current.capabilities,
-        [key]: !current.capabilities[key]
-      }
-    }));
-  }
-
+  
   const importProjectMutation = useMutation({
-    mutationFn: () => api<WorkspaceRef>("/api/projects/import", asJson(importForm)),
+    mutationFn: () => {
+      if (!importForm.sourcePath || importForm.sourcePath.trim() === "") {
+        throw new Error("Source path is required");
+      }
+      return api<WorkspaceRef>("/api/projects/import", asJson(importForm));
+    },
     onSuccess: (workspace) => {
       startTransition(() => {
         setSelectedProjectId(workspace.id);
@@ -319,13 +311,15 @@ export function useWorkbenchController() {
       setFlashMessage(`Imported ${workspace.name}`);
       void queryClient.invalidateQueries({ queryKey: workbenchKeys.projects });
     },
-    onError: showError
+    onError: (error) => {
+      setFlashMessage(`Import failed: ${errorMessage(error)}`);
+    }
   });
 
   const extractMutation = useMutation({
     mutationFn: () => api(`/api/projects/${selectedProjectId}/extract`, { method: "POST" }),
     onSuccess: () => {
-      setActiveStage("ir");
+      setActiveStage("spec");
       invalidateProjectSlices(queryClient, selectedProjectId);
       setFlashMessage("Extraction refreshed");
     },
@@ -336,7 +330,7 @@ export function useWorkbenchController() {
     mutationFn: () => api(`/api/projects/${selectedProjectId}/draft-spec`, { method: "POST" }),
     onSuccess: () => {
       setSpecStage("draft");
-      setActiveStage("generation");
+      setActiveStage("spec");
       invalidateProjectSlices(queryClient, selectedProjectId);
       setFlashMessage("Draft spec rebuilt from extraction");
     },
@@ -373,7 +367,7 @@ export function useWorkbenchController() {
   const generateMutation = useMutation({
     mutationFn: () => api(`/api/projects/${selectedProjectId}/generate`, { method: "POST" }),
     onSuccess: () => {
-      setActiveStage("generation");
+      setActiveStage("spec");
       invalidateProjectSlices(queryClient, selectedProjectId);
       setFlashMessage("Generation completed");
     },
@@ -383,7 +377,7 @@ export function useWorkbenchController() {
   const driftMutation = useMutation({
     mutationFn: () => api(`/api/projects/${selectedProjectId}/drift`, { method: "POST" }),
     onSuccess: () => {
-      setActiveStage("contracts");
+      setActiveStage("drift");
       invalidateProjectSlices(queryClient, selectedProjectId);
       setFlashMessage("Drift report updated");
     },
@@ -484,8 +478,6 @@ export function useWorkbenchController() {
     approvedSpecContent,
     draftSpecContent,
     proposalPatch,
-    graphNodes,
-    graphEdges,
     graphSummary,
     irPreviewJson,
     topFacts,
@@ -502,7 +494,6 @@ export function useWorkbenchController() {
     updateEditor,
     updateImportField,
     updateStoryField,
-    updateCapability,
     setSelectedProposalId,
     handleNextAction,
     importProjectMutation,

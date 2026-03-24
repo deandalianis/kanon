@@ -1,6 +1,6 @@
 import type { CapabilitySet } from "../../types";
 
-export const PIPELINE_STAGES = ["spec", "ir", "generation", "contracts", "graph"] as const;
+export const PIPELINE_STAGES = ["spec", "proposals", "drift", "graph"] as const;
 
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];
 export type StageStatus = "healthy" | "needs-review" | "blocked" | "not-loaded";
@@ -19,12 +19,46 @@ export type ProposalView = {
   status: string;
 };
 
-export type ImportFormState = {
+export type BddImplStep = {
+  type: string;
+  expr?: string;
+  message?: string;
+  target?: string;
+  value?: string;
+  service?: string;
+  method?: string;
+  args?: string[];
+  event?: string;
+  when?: string;
+  then?: BddImplStep[];
+  els?: BddImplStep[];
+};
+
+export type BddStep = {
+  step: string;
+  impl?: BddImplStep;
+  sourceHint?: string;
+};
+
+export type BddScenario = {
   name: string;
+  given: BddStep[];
+  when: BddStep[];
+  then: BddStep[];
+};
+
+export type BddCommand = {
+  name: string;
+  scenarios: BddScenario[];
+};
+
+export type BddAggregate = {
+  name: string;
+  commands: BddCommand[];
+};
+
+export type ImportFormState = {
   sourcePath: string;
-  serviceName: string;
-  basePackage: string;
-  capabilities: CapabilitySet;
 };
 
 export type StoryFormState = {
@@ -42,10 +76,10 @@ export type GraphSummary = {
   commandNodes: number;
   entityNodes: number;
   eventNodes: number;
-  evidenceNodes: number;
-  conflictNodes: number;
-  impactEdges: number;
-  blockingEdges: number;
+  evidenceCount: number;
+  warningConflictCount: number;
+  blockingConflictCount: number;
+  uncoveredNodes: number;
 };
 
 export type StageSummary = {
@@ -71,17 +105,7 @@ export type WorkbenchNotice = {
 };
 
 export const IMPORT_DEFAULTS: ImportFormState = {
-  name: "",
-  sourcePath: "",
-  serviceName: "",
-  basePackage: "",
-  capabilities: {
-    postgres: true,
-    messaging: false,
-    security: true,
-    cache: true,
-    observability: true
-  }
+  sourcePath: ""
 };
 
 export const STORY_DEFAULTS: StoryFormState = {
@@ -99,23 +123,19 @@ export const SPEC_STAGE_LABELS: Record<SpecStageKey, string> = {
 export const PIPELINE_STAGE_META: Record<PipelineStage, { label: string; subtitle: string }> = {
   spec: {
     label: "Spec",
-    subtitle: "Working YAML, validation, and proposal review"
+    subtitle: "Edit YAML specification and validate"
   },
-  ir: {
-    label: "IR",
-    subtitle: "Canonical IR, evidence, and extraction conflicts"
+  proposals: {
+    label: "Proposals",
+    subtitle: "AI-assisted spec modifications"
   },
-  generation: {
-    label: "Generation",
-    subtitle: "Draft building, validation checks, and output runs"
-  },
-  contracts: {
-    label: "Contracts",
-    subtitle: "Drift posture, blockers, and contract delta"
+  drift: {
+    label: "Drift",
+    subtitle: "Code vs spec comparison and contract changes"
   },
   graph: {
     label: "Graph",
-    subtitle: "Lineage, impact links, and evidence anchors"
+    subtitle: "Lineage visualization and impact analysis"
   }
 };
 

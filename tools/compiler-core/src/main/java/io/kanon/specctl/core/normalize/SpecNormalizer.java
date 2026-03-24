@@ -8,6 +8,7 @@ import io.kanon.specctl.ir.CanonicalIr;
 import io.kanon.specctl.ir.RuleAst;
 import io.kanon.specctl.ir.StableIds;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -274,10 +275,18 @@ public final class SpecNormalizer {
                 .map(field -> normalizeField(commandPath + "/input", field))
                 .toList();
 
-        List<RuleAst.ParsedRule> parsedRules = command.rules().stream()
-                .sorted(Comparator.comparing(rule -> CanonicalNames.canonicalToken(rule.id())))
-                .map(ruleParser::parse)
-                .toList();
+        List<RuleAst.ParsedRule> parsedRules = new ArrayList<>();
+        for (SpecDocument.Rule rule : command.rules().stream()
+                .sorted(Comparator.comparing(r -> CanonicalNames.canonicalToken(r.id())))
+                .toList()) {
+            try {
+                parsedRules.add(ruleParser.parse(rule));
+            } catch (Exception e) {
+                diagnostics.warn("RULE_UNPARSEABLE",
+                        "Rule '" + rule.id() + "' could not be parsed and will be skipped: " + e.getMessage(),
+                        commandPath);
+            }
+        }
         ruleAnalyzer.detectConflicts(commandPath, parsedRules, ruleAnalyzer.buildSymbolTable(aggregate, command), diagnostics);
 
         List<CanonicalIr.Rule> rules = parsedRules.stream()
@@ -314,7 +323,45 @@ public final class SpecNormalizer {
                         "emits", emittedEventPaths
                 )
         );
-        return new CanonicalIr.Command(command.name(), canonicalName, commandPath, stableId, mapHttp(command.http()), inputFields, rules, emittedEventPaths);
+        List<CanonicalIr.BddScenario> scenarios = command.scenarios().stream()
+                .map(this::normalizeBddScenario)
+                .toList();
+
+        return new CanonicalIr.Command(command.name(), canonicalName, commandPath, stableId, mapHttp(command.http()), inputFields, rules, emittedEventPaths, scenarios);
+    }
+
+    private CanonicalIr.BddScenario normalizeBddScenario(SpecDocument.BddScenario scenario) {
+        return new CanonicalIr.BddScenario(
+                scenario.name(),
+                scenario.given().stream().map(this::normalizeBddStep).toList(),
+                scenario.when().stream().map(this::normalizeBddStep).toList(),
+                scenario.then().stream().map(this::normalizeBddStep).toList()
+        );
+    }
+
+    private CanonicalIr.BddStep normalizeBddStep(SpecDocument.BddStep step) {
+        return new CanonicalIr.BddStep(
+                step.step(),
+                step.impl() == null ? null : normalizeImplStep(step.impl()),
+                step.sourceHint()
+        );
+    }
+
+    private CanonicalIr.ImplStep normalizeImplStep(SpecDocument.ImplStep impl) {
+        return new CanonicalIr.ImplStep(
+                impl.type(),
+                impl.expr(),
+                impl.message(),
+                impl.target(),
+                impl.value(),
+                impl.service(),
+                impl.method(),
+                impl.args(),
+                impl.event(),
+                impl.when(),
+                impl.then().stream().map(this::normalizeImplStep).toList(),
+                impl.els().stream().map(this::normalizeImplStep).toList()
+        );
     }
 
     private String resolveEventPath(String commandPath, String eventName, Map<String, String> eventPaths, Diagnostics diagnostics) {

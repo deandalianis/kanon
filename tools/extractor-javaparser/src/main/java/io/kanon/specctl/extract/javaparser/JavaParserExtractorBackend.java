@@ -57,12 +57,16 @@ public final class JavaParserExtractorBackend implements ExtractorBackend {
                     String packageName = unit.getPackageDeclaration().map(pkg -> pkg.getName().asString()).orElse("");
                     for (TypeDeclaration<?> type : unit.getTypes()) {
                         String qualifiedName = packageName.isBlank() ? type.getNameAsString() : packageName + "." + type.getNameAsString();
+                        List<String> typeAnnotations = type.getAnnotations().stream()
+                                .map(a -> a.getNameAsString())
+                                .toList();
                         facts.add(new ExtractionResult.Fact(
                                 "type",
                                 "/types/" + qualifiedName.replace('.', '/'),
                                 Map.of(
                                         "name", type.getNameAsString(),
                                         "kind", canonicalTypeKind(type),
+                                        "annotations", typeAnnotations,
                                         "structureOnly", true
                                 )
                         ));
@@ -103,12 +107,23 @@ public final class JavaParserExtractorBackend implements ExtractorBackend {
                             attributes.put("returnType", ExtractionTypeNames.canonicalize(method.getType().asString()));
                             attributes.put("parameterCount", method.getParameters().size());
                             attributes.put("parameters", method.getParameters().stream()
-                                    .map(parameter -> Map.of(
-                                            "name", parameter.getNameAsString(),
-                                            "type", ExtractionTypeNames.canonicalize(parameter.getType().asString())
-                                    ))
+                                    .map(parameter -> {
+                                        Map<String, Object> paramMap = new HashMap<>();
+                                        paramMap.put("name", parameter.getNameAsString());
+                                        paramMap.put("type", ExtractionTypeNames.canonicalize(parameter.getType().asString()));
+                                        List<String> paramAnnotations = parameter.getAnnotations().stream()
+                                                .map(a -> a.getNameAsString()).toList();
+                                        if (!paramAnnotations.isEmpty()) {
+                                            paramMap.put("annotations", paramAnnotations);
+                                        }
+                                        return paramMap;
+                                    })
                                     .toList());
-                            attributes.put("structureOnly", true);
+                            attributes.put("visibility", method.getAccessSpecifier().asString());
+                            attributes.put("annotations", method.getAnnotations().stream()
+                                    .map(a -> a.getNameAsString()).toList());
+                            method.getBody().ifPresent(body -> attributes.put("methodBody", body.toString()));
+                            attributes.put("structureOnly", !method.getBody().isPresent());
                             facts.add(new ExtractionResult.Fact("method", methodPath, attributes));
                             method.getRange().ifPresent(range -> provenance.add(new ExtractionResult.Provenance(
                                     methodPath,

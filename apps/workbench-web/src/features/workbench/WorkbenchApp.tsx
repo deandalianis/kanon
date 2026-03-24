@@ -8,9 +8,11 @@ import { IrStage } from "./components/IrStage";
 import { SpecStage } from "./components/SpecStage";
 import { EmptyState, Panel, SectionHeader } from "./components/primitives";
 import { useWorkbenchController } from "./useWorkbenchController";
+import { parseBddAggregates } from "./utils";
 
 export function WorkbenchApp() {
   const controller = useWorkbenchController();
+  const bddAggregates = parseBddAggregates(controller.editorValue);
 
   return (
     <div className="app-shell">
@@ -20,7 +22,6 @@ export function WorkbenchApp() {
         onSelectProject={controller.selectProject}
         importForm={controller.importForm}
         onImportFieldChange={controller.updateImportField}
-        onToggleCapability={controller.updateCapability}
         onImportWorkspace={() => controller.importProjectMutation.mutate()}
         importPending={controller.importProjectMutation.isPending}
         settings={controller.settingsQuery.data}
@@ -103,33 +104,39 @@ export function WorkbenchApp() {
             proposalPatch={controller.proposalPatch}
             onApplyProposal={(proposalId) => controller.applyProposalMutation.mutate(proposalId)}
             applyProposalPending={controller.applyProposalMutation.isPending}
+            bddAggregates={bddAggregates}
           />
-        ) : controller.activeStage === "ir" ? (
-          <IrStage
-            hasExtractionRun={controller.hasExtractionRun}
-            extraction={controller.extractionQuery.data}
-            extractionLoading={controller.extractionQuery.isLoading}
-            irPreviewJson={controller.irPreviewJson}
-            irLoading={controller.irQuery.isLoading}
-            onRefreshExtraction={() => controller.extractMutation.mutate()}
-            extractionPending={controller.extractMutation.isPending}
+        ) : controller.activeStage === "proposals" ? (
+          <SpecStage
+            specStage="current"
+            onSelectSpecStage={() => {}}
+            editorValue=""
+            onEditorChange={() => {}}
+            editorDirty={false}
+            onSave={() => {}}
+            savePending={false}
+            onValidate={() => {}}
+            validatePending={false}
+            validationReport={null}
+            proposalInstruction={controller.proposalInstruction}
+            onProposalInstructionChange={controller.setProposalInstruction}
+            onCreateSpecProposal={() => controller.specProposalMutation.mutate()}
+            specProposalPending={controller.specProposalMutation.isPending}
+            storyForm={controller.storyForm}
+            onStoryFieldChange={controller.updateStoryField}
+            onCreateStoryProposal={() => controller.storyProposalMutation.mutate()}
+            storyProposalPending={controller.storyProposalMutation.isPending}
+            proposals={controller.allProposals}
+            selectedProposalId={controller.selectedProposalId}
+            onSelectProposal={controller.setSelectedProposalId}
+            selectedProposal={controller.selectedProposal}
+            approvedSpecContent={controller.approvedSpecContent}
+            proposalPatch={controller.proposalPatch}
+            onApplyProposal={(proposalId) => controller.applyProposalMutation.mutate(proposalId)}
+            applyProposalPending={controller.applyProposalMutation.isPending}
+            bddAggregates={bddAggregates}
           />
-        ) : controller.activeStage === "generation" ? (
-          <GenerationStage
-            hasAnySpec={controller.hasAnySpec}
-            hasExtractionRun={controller.hasExtractionRun}
-            editorDirty={controller.editorDirty}
-            validationReport={controller.validationReport}
-            latestRun={controller.latestRun}
-            runs={controller.runsQuery.data ?? []}
-            onBuildDraft={() => controller.buildDraftMutation.mutate()}
-            buildDraftPending={controller.buildDraftMutation.isPending}
-            onValidate={() => controller.validateSpecMutation.mutate()}
-            validatePending={controller.validateSpecMutation.isPending}
-            onGenerate={() => controller.generateMutation.mutate()}
-            generatePending={controller.generateMutation.isPending}
-          />
-        ) : controller.activeStage === "contracts" ? (
+        ) : controller.activeStage === "drift" ? (
           <ContractsStage
             drift={controller.driftQuery.data}
             driftLoading={controller.driftQuery.isLoading}
@@ -141,11 +148,10 @@ export function WorkbenchApp() {
         ) : (
           <GraphStage
             hasExtractionRun={controller.hasExtractionRun}
-            graphNodes={controller.graphNodes}
-            graphEdges={controller.graphEdges}
+            graph={controller.graphQuery.data}
+            graphLoading={controller.graphQuery.isLoading}
             graphSummary={controller.graphSummary}
-            evidence={controller.topEvidence}
-            conflicts={controller.topConflicts}
+            extraction={controller.extractionQuery.data}
             onRefreshExtraction={() => controller.extractMutation.mutate()}
             extractionPending={controller.extractMutation.isPending}
           />

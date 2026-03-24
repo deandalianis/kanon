@@ -61,7 +61,6 @@ public class WorkspaceService {
         entity.setName(normalizedName);
         entity.setSourcePath(resolvedSourcePath.toString());
         entity.setWorkspacePath(workspacePath.toAbsolutePath().toString());
-        entity.setGitBacked(Files.exists(resolvedSourcePath.resolve(".git")));
         entity.setServiceName(profile.serviceName());
         entity.setBasePackage(profile.basePackage());
         entity.setFramework(profile.framework());
@@ -101,7 +100,6 @@ public class WorkspaceService {
                 entity.getName(),
                 entity.getSourcePath(),
                 entity.getWorkspacePath(),
-                entity.isGitBacked(),
                 new PlatformTypes.ProjectProfile(
                         entity.getServiceName(),
                         entity.getBasePackage(),

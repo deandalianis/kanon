@@ -64,12 +64,6 @@ export function WorkbenchHeader({
               </button>
             }
           />
-          <MetricTile
-            label="Workspace mode"
-            value={project.gitBacked ? "Git connected" : "Local only"}
-            detail="The workbench operates against managed workspace artifacts and your registered source tree."
-            tone={project.gitBacked ? "info" : "neutral"}
-          />
         </div>
       </div>
     </Panel>

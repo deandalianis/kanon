@@ -26,9 +26,6 @@ public class ProjectEntity {
     private String workspacePath;
 
     @Column(nullable = false)
-    private boolean gitBacked;
-
-    @Column(nullable = false)
     private String serviceName;
 
     @Column(nullable = false)
@@ -73,14 +70,6 @@ public class ProjectEntity {
 
     public void setWorkspacePath(String workspacePath) {
         this.workspacePath = workspacePath;
-    }
-
-    public boolean isGitBacked() {
-        return gitBacked;
-    }
-
-    public void setGitBacked(boolean gitBacked) {
-        this.gitBacked = gitBacked;
     }
 
     public String getServiceName() {

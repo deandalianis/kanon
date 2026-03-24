@@ -1,6 +1,7 @@
 import { DiffEditor, Editor } from "@monaco-editor/react";
 import type { ValidationReport } from "../../../types";
-import { SPEC_STAGE_LABELS, type ProposalView, type SpecStageKey, type StoryFormState } from "../types";
+import { SPEC_STAGE_LABELS, type BddAggregate, type ProposalView, type SpecStageKey, type StoryFormState } from "../types";
+import { BddScenariosViewer } from "./BddScenariosViewer";
 import { EmptyState, Panel, SectionHeader, StatusBadge } from "./primitives";
 
 export function SpecStage({
@@ -29,7 +30,8 @@ export function SpecStage({
   approvedSpecContent,
   proposalPatch,
   onApplyProposal,
-  applyProposalPending
+  applyProposalPending,
+  bddAggregates
 }: {
   specStage: SpecStageKey;
   onSelectSpecStage: (stage: SpecStageKey) => void;
@@ -57,6 +59,7 @@ export function SpecStage({
   proposalPatch: string;
   onApplyProposal: (proposalId: string) => void;
   applyProposalPending: boolean;
+  bddAggregates: BddAggregate[];
 }) {
   const diffTitle = selectedProposal ? "Approved spec vs selected proposal" : "Approved spec vs draft";
   const diffBadgeTone = selectedProposal?.kind === "STORY" ? "info" : "warning";
@@ -198,6 +201,8 @@ export function SpecStage({
       </div>
 
       <div className="stage-side">
+        <BddScenariosViewer aggregates={bddAggregates} />
+
         <Panel>
           <SectionHeader
             eyebrow="Validation"

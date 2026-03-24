@@ -20,6 +20,7 @@ public final class BuiltinPlugins {
         plugins.add(PluginSupport.registered(PluginSupport.runtimeManifest(), new RuntimePlugin()));
         plugins.add(PluginSupport.registered(PluginSupport.apiManifest(), new ApiPlugin()));
         plugins.add(PluginSupport.registered(PluginSupport.contractManifest(), new ContractPlugin()));
+        plugins.add(PluginSupport.registered(PluginSupport.testManifest(), new TestPlugin()));
         if (capabilities.postgres()) {
             plugins.add(PluginSupport.registered(PluginSupport.persistenceManifest(), new PersistencePlugin()));
         }

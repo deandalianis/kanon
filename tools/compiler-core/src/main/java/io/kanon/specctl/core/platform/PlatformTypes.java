@@ -35,7 +35,6 @@ public final class PlatformTypes {
             String name,
             String sourcePath,
             String workspacePath,
-            boolean gitBacked,
             ProjectProfile profile
     ) {
     }
@@ -223,11 +222,26 @@ public final class PlatformTypes {
             String label,
             String type,
             String path,
+            String parentId,
+            GraphNodeStats stats,
             Map<String, Object> metadata
     ) {
         public GraphNode {
+            stats = stats == null ? new GraphNodeStats(0, 0, 0, 0, 0, 0, 0, 0) : stats;
             metadata = MoreCollections.immutableMap(metadata);
         }
+    }
+
+    public record GraphNodeStats(
+            int evidenceCount,
+            int warningConflictCount,
+            int blockingConflictCount,
+            int boundedContextCount,
+            int aggregateCount,
+            int commandCount,
+            int entityCount,
+            int eventCount
+    ) {
     }
 
     public record GraphEdge(

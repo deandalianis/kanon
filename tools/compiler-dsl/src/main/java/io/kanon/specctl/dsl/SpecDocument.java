@@ -1,6 +1,8 @@
 package io.kanon.specctl.dsl;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -109,7 +111,7 @@ public record SpecDocument(
             List<Entity> entities,
             StateMachine stateMachine,
             List<Command> commands,
-            List<Event> events,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<Event> events,
             List<Hook> hooks
     ) {
         public Aggregate {
@@ -182,18 +184,59 @@ public record SpecDocument(
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Command(String name, Http http, Input input, List<Rule> rules, List<String> emits) {
+    public record Command(String name, Http http, Input input, List<Rule> rules, @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> emits, List<BddScenario> scenarios) {
         public Command {
             rules = immutableList(rules);
             emits = immutableList(emits);
+            scenarios = immutableList(scenarios);
         }
 
         public Command withName(String nextName) {
-            return new Command(nextName, http, input, rules, emits);
+            return new Command(nextName, http, input, rules, emits, scenarios);
         }
 
         public Command withRules(List<Rule> nextRules) {
-            return new Command(name, http, input, nextRules, emits);
+            return new Command(name, http, input, nextRules, emits, scenarios);
+        }
+
+        public Command withScenarios(List<BddScenario> nextScenarios) {
+            return new Command(name, http, input, rules, emits, nextScenarios);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonPropertyOrder({"name", "given", "when", "then"})
+    public record BddScenario(String name, List<BddStep> given, List<BddStep> when, List<BddStep> then) {
+        public BddScenario {
+            given = immutableList(given);
+            when = immutableList(when);
+            then = immutableList(then);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record BddStep(String step, ImplStep impl, String sourceHint) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ImplStep(
+            String type,
+            String expr,
+            String message,
+            String target,
+            String value,
+            String service,
+            String method,
+            List<String> args,
+            String event,
+            String when,
+            List<ImplStep> then,
+            List<ImplStep> els
+    ) {
+        public ImplStep {
+            args = immutableList(args);
+            then = immutableList(then);
+            els = immutableList(els);
         }
     }
 

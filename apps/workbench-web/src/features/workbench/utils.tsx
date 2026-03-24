@@ -1,4 +1,3 @@
-import type { Edge, Node } from "@xyflow/react";
 import type {
   ContractDiff,
   DriftReport,
@@ -11,6 +10,7 @@ import type {
 } from "../../types";
 import {
   PIPELINE_STAGE_META,
+  type BddAggregate,
   type GraphSummary,
   type NextAction,
   type PipelineStage,
@@ -19,17 +19,6 @@ import {
   type Tone,
   type WorkbenchNotice
 } from "./types";
-
-const GRAPH_COLUMNS: Record<string, number> = {
-  service: 0,
-  "bounded-context": 1,
-  aggregate: 2,
-  command: 3,
-  entity: 4,
-  event: 5,
-  "code-anchor": 6,
-  conflict: 7
-};
 
 function countNodes(graph: GraphView | undefined, type: string) {
   return (graph?.nodes ?? []).filter((node) => node.type === type).length;
@@ -107,84 +96,25 @@ export function mergeProposals(
 }
 
 export function summarizeGraph(graph?: GraphView): GraphSummary {
-  const edges = graph?.edges ?? [];
-  const blockingEdges = edges.filter((edge) => edge.label === "BLOCKS").length;
+  const serviceNode = (graph?.nodes ?? []).find((node) => node.type === "service");
+  const evidenceCount = serviceNode?.stats.evidenceCount ?? 0;
+  const warningConflictCount = serviceNode?.stats.warningConflictCount ?? 0;
+  const blockingConflictCount = serviceNode?.stats.blockingConflictCount ?? 0;
 
   return {
     nodes: graph?.nodes.length ?? 0,
-    edges: edges.length,
+    edges: graph?.edges.length ?? 0,
     serviceNodes: countNodes(graph, "service"),
     boundedContextNodes: countNodes(graph, "bounded-context"),
     aggregateNodes: countNodes(graph, "aggregate"),
     commandNodes: countNodes(graph, "command"),
     entityNodes: countNodes(graph, "entity"),
     eventNodes: countNodes(graph, "event"),
-    evidenceNodes: countNodes(graph, "code-anchor"),
-    conflictNodes: countNodes(graph, "conflict"),
-    impactEdges: edges.length - blockingEdges,
-    blockingEdges
+    evidenceCount,
+    warningConflictCount,
+    blockingConflictCount,
+    uncoveredNodes: (graph?.nodes ?? []).filter((node) => node.type !== "service" && node.stats.evidenceCount === 0).length
   };
-}
-
-export function buildFlowNodes(graph?: GraphView): Node[] {
-  if (!graph) {
-    return [];
-  }
-
-  const columnOffsets = new Map<number, number>();
-
-  return graph.nodes.map((node) => {
-    const column = GRAPH_COLUMNS[node.type] ?? 7;
-    const row = columnOffsets.get(column) ?? 0;
-    columnOffsets.set(column, row + 1);
-
-    return {
-      id: node.id,
-      position: {
-        x: column * 240,
-        y: row * 120
-      },
-      className: `graph-node graph-node--${node.type}`,
-      draggable: false,
-      data: {
-        label: (
-          <div className="graph-node-card">
-            <span>{node.type.replaceAll("-", " ")}</span>
-            <strong>{node.label}</strong>
-            <small>{node.path}</small>
-          </div>
-        )
-      },
-      type: "default"
-    };
-  });
-}
-
-export function buildFlowEdges(graph?: GraphView): Edge[] {
-  if (!graph) {
-    return [];
-  }
-
-  return graph.edges.map((edge) => {
-    const tone = edge.label === "BLOCKS" ? "#e07a5f" : edge.label === "WARNS" ? "#f2cc8f" : "#7fb3ff";
-
-    return {
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      label: edge.label,
-      animated: edge.label === "BLOCKS",
-      style: {
-        stroke: tone,
-        strokeWidth: edge.label === "BLOCKS" ? 2.2 : 1.5
-      },
-      labelStyle: {
-        fill: "#9fb2cb",
-        fontSize: 10,
-        fontWeight: 600
-      }
-    };
-  });
 }
 
 export function formatMetadata(metadataJson?: string | null) {
@@ -304,9 +234,9 @@ export function deriveNextAction(input: {
 
   if (!input.hasExtractionRun) {
     return {
-      stage: "ir",
+      stage: "spec",
       label: "Refresh extraction",
-      detail: "Build the evidence model first so IR, contracts, and graph review have current inputs.",
+      detail: "Build the evidence model first so spec and graph review have current inputs.",
       tone: "warning",
       command: "extract"
     };
@@ -314,9 +244,9 @@ export function deriveNextAction(input: {
 
   if (fatalConflicts) {
     return {
-      stage: "ir",
-      label: "Inspect IR",
-      detail: `${fatalConflicts} fatal extraction conflict(s) are blocking downstream stages.`,
+      stage: "spec",
+      label: "Fix extraction conflicts",
+      detail: `${fatalConflicts} fatal extraction conflict(s) are blocking the spec.`,
       tone: "danger",
       command: "open-stage"
     };
@@ -324,7 +254,7 @@ export function deriveNextAction(input: {
 
   if (!input.hasAnySpec) {
     return {
-      stage: "generation",
+      stage: "spec",
       label: "Build draft spec",
       detail: "Use the latest extraction to draft the first working spec for this workspace.",
       tone: "warning",
@@ -364,8 +294,8 @@ export function deriveNextAction(input: {
 
   if (blockingDrift || input.contractDeltaCount) {
     return {
-      stage: "contracts",
-      label: "Review contracts",
+      stage: "drift",
+      label: "Review drift",
       detail: blockingDrift
         ? `${blockingDrift} blocking drift item(s) need attention.`
         : `${input.contractDeltaCount} contract change(s) should be reviewed against baseline.`,
@@ -375,12 +305,59 @@ export function deriveNextAction(input: {
   }
 
   return {
-    stage: "generation",
-    label: "Prepare generation",
-    detail: "The workspace is ready for output review and a fresh generation run.",
+    stage: "spec",
+    label: "Spec is ready",
+    detail: "The workspace is ready for generation and review.",
     tone: "positive",
     command: "open-stage"
   };
+}
+
+export function parseBddAggregates(specYaml: string): BddAggregate[] {
+  if (!specYaml) return [];
+  try {
+    const lines = specYaml.split("\n");
+    const aggregates: BddAggregate[] = [];
+    let currentAggregate: BddAggregate | null = null;
+    let currentCommand: { name: string; scenarios: unknown[] } | null = null;
+    let inScenarios = false;
+    let scenarioDepth = 0;
+
+    for (const line of lines) {
+      const trimmed = line.trimStart();
+      const indent = line.length - trimmed.length;
+
+      if (trimmed.startsWith("- name:") && indent <= 4) {
+        const aggName = trimmed.replace("- name:", "").trim();
+        currentAggregate = { name: aggName, commands: [] };
+        aggregates.push(currentAggregate);
+        currentCommand = null;
+        inScenarios = false;
+      } else if (trimmed.startsWith("- name:") && indent >= 6 && indent <= 10 && currentAggregate) {
+        const cmdName = trimmed.replace("- name:", "").trim();
+        currentCommand = { name: cmdName, scenarios: [] };
+        currentAggregate.commands.push(currentCommand as { name: string; scenarios: never[] });
+        inScenarios = false;
+      } else if (trimmed === "scenarios:" && currentCommand) {
+        inScenarios = true;
+        scenarioDepth = indent;
+      } else if (inScenarios && trimmed.startsWith("- name:") && indent > scenarioDepth) {
+        const scenarioName = trimmed.replace("- name:", "").trim();
+        if (currentCommand) {
+          (currentCommand.scenarios as Array<{ name: string; given: unknown[]; when: unknown[]; then: unknown[] }>).push({
+            name: scenarioName,
+            given: [],
+            when: [],
+            then: []
+          });
+        }
+      }
+    }
+
+    return aggregates.filter(agg => agg.commands.some(cmd => cmd.scenarios.length > 0));
+  } catch {
+    return [];
+  }
 }
 
 export function buildStageSummaries(input: {
@@ -444,9 +421,9 @@ export function buildStageSummaries(input: {
     ? "not-loaded"
     : !input.graphLoaded
       ? "not-loaded"
-      : input.graphSummary.blockingEdges
+      : input.graphSummary.blockingConflictCount
         ? "blocked"
-        : input.graphSummary.conflictNodes
+        : input.graphSummary.warningConflictCount
           ? "needs-review"
           : "healthy";
 
@@ -466,42 +443,26 @@ export function buildStageSummaries(input: {
               : "Working spec is in sync"
     },
     {
-      id: "ir",
-      ...PIPELINE_STAGE_META.ir,
-      status: irStatus,
-      detail: !input.hasExtractionRun
-        ? "Extraction not run yet"
-        : fatalConflicts
-          ? `${fatalConflicts} fatal extraction conflict(s)`
-          : advisoryConflicts
-            ? `${advisoryConflicts} advisory conflict(s)`
-            : "Evidence model available"
+      id: "proposals",
+      ...PIPELINE_STAGE_META.proposals,
+      status: input.proposalsCount > 0 ? "healthy" : "not-loaded",
+      detail: input.proposalsCount
+        ? `${input.proposalsCount} proposal(s) available`
+        : "No proposals created yet"
     },
     {
-      id: "generation",
-      ...PIPELINE_STAGE_META.generation,
-      status: generationStatus,
-      detail: !input.hasAnySpec
-        ? "No spec ready for generation"
-        : generationFailed
-          ? "Latest generation run failed"
-          : input.editorDirty
-            ? "Saved spec differs from editor state"
-            : "Generation path is ready"
-    },
-    {
-      id: "contracts",
-      ...PIPELINE_STAGE_META.contracts,
+      id: "drift",
+      ...PIPELINE_STAGE_META.drift,
       status: contractsStatus,
       detail: !input.hasDriftRun && !input.contractDeltaCount
-        ? "No divergence scan or contract delta loaded"
+        ? "No drift scan run yet"
         : blockingDrift
           ? `${blockingDrift} blocking drift item(s)`
           : input.contractDeltaCount
             ? `${input.contractDeltaCount} contract change(s)`
             : driftItems
               ? `${driftItems} advisory drift item(s)`
-              : "Contracts are aligned"
+              : "No drift detected"
     },
     {
       id: "graph",
@@ -511,8 +472,8 @@ export function buildStageSummaries(input: {
         ? "Extraction required before graph review"
         : !input.graphLoaded
           ? "Graph view has not been opened yet"
-          : input.graphSummary.blockingEdges
-            ? `${input.graphSummary.blockingEdges} blocking link(s)`
+          : input.graphSummary.blockingConflictCount
+            ? `${input.graphSummary.blockingConflictCount} blocking conflict(s)`
             : `${input.graphSummary.nodes} nodes and ${input.graphSummary.edges} edges`
     }
   ];

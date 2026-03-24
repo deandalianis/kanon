@@ -226,12 +226,46 @@ public record CanonicalIr(
             Http http,
             List<Field> inputFields,
             List<Rule> rules,
-            List<String> emittedEventPaths
+            List<String> emittedEventPaths,
+            List<BddScenario> scenarios
     ) {
         public Command {
             inputFields = immutableList(inputFields);
             rules = immutableList(rules);
             emittedEventPaths = immutableList(emittedEventPaths);
+            scenarios = immutableList(scenarios);
+        }
+    }
+
+    public record BddScenario(String name, List<BddStep> given, List<BddStep> when, List<BddStep> then) {
+        public BddScenario {
+            given = immutableList(given);
+            when = immutableList(when);
+            then = immutableList(then);
+        }
+    }
+
+    public record BddStep(String step, ImplStep impl, String sourceHint) {
+    }
+
+    public record ImplStep(
+            String type,
+            String expr,
+            String message,
+            String target,
+            String value,
+            String service,
+            String method,
+            List<String> args,
+            String event,
+            String when,
+            List<ImplStep> then,
+            List<ImplStep> els
+    ) {
+        public ImplStep {
+            args = immutableList(args);
+            then = immutableList(then);
+            els = immutableList(els);
         }
     }
 

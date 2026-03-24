@@ -1,9 +1,8 @@
-import type { CapabilitySet, RuntimeSettings, WorkspaceRef } from "../../../types";
-import { formatCapabilityLabel } from "../utils";
+import type { RuntimeSettings, WorkspaceRef } from "../../../types";
 import type { ImportFormState } from "../types";
 import { Panel, SectionHeader, StatusBadge } from "./primitives";
 
-type ImportTextField = "name" | "sourcePath" | "serviceName" | "basePackage";
+type ImportTextField = "sourcePath";
 
 export function WorkbenchSidebar({
   projects,
@@ -11,7 +10,6 @@ export function WorkbenchSidebar({
   onSelectProject,
   importForm,
   onImportFieldChange,
-  onToggleCapability,
   onImportWorkspace,
   importPending,
   settings,
@@ -23,14 +21,12 @@ export function WorkbenchSidebar({
   onSelectProject: (projectId: string) => void;
   importForm: ImportFormState;
   onImportFieldChange: (field: ImportTextField, value: string) => void;
-  onToggleCapability: (key: keyof CapabilitySet) => void;
   onImportWorkspace: () => void;
   importPending: boolean;
   settings?: RuntimeSettings;
   settingsLoading: boolean;
   flashMessage: string;
 }) {
-  const capabilityKeys = Object.keys(importForm.capabilities) as Array<keyof CapabilitySet>;
   const importRoots = settings?.importRoots ?? [];
   const sourcePathPlaceholder = importRoots.length ? `${importRoots[0]}/my-service` : "/Users/alice/code/my-service";
 
@@ -79,14 +75,6 @@ export function WorkbenchSidebar({
         <SectionHeader eyebrow="Import" title="Register workspace" />
         <div className="field-stack">
           <label className="form-field">
-            <span>Name (optional)</span>
-            <input
-              className="text-input"
-              value={importForm.name}
-              onChange={(event) => onImportFieldChange("name", event.target.value)}
-            />
-          </label>
-          <label className="form-field">
             <span>Source Path</span>
             <input
               className="text-input"
@@ -95,40 +83,14 @@ export function WorkbenchSidebar({
               placeholder={sourcePathPlaceholder}
             />
             {!!importRoots.length && (
-              <small className="field-hint">Visible to API: {importRoots.join(", ")}</small>
+              <small className="field-hint">
+                Allowed paths: {importRoots.join(", ")}
+              </small>
             )}
           </label>
-          <label className="form-field">
-            <span>Service Name</span>
-            <input
-              className="text-input"
-              value={importForm.serviceName}
-              onChange={(event) => onImportFieldChange("serviceName", event.target.value)}
-            />
-          </label>
-          <label className="form-field">
-            <span>Base Package</span>
-            <input
-              className="text-input"
-              value={importForm.basePackage}
-              onChange={(event) => onImportFieldChange("basePackage", event.target.value)}
-              placeholder="io.kanon.demo"
-            />
-          </label>
-        </div>
-
-        <div className="toggle-grid">
-          {capabilityKeys.map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={`toggle-chip ${importForm.capabilities[key] ? "active" : ""}`}
-              onClick={() => onToggleCapability(key)}
-            >
-              <span>{formatCapabilityLabel(key)}</span>
-              <strong>{importForm.capabilities[key] ? "on" : "off"}</strong>
-            </button>
-          ))}
+          <small className="field-hint" style={{ marginTop: '-4px', color: 'var(--muted)' }}>
+            💡 Service name and base package will be auto-derived from the folder name
+          </small>
         </div>
 
         <button

@@ -18,7 +18,6 @@ export type WorkspaceRef = {
   name: string;
   sourcePath: string;
   workspacePath: string;
-  gitBacked: boolean;
   profile: ProjectProfile;
 };
 
@@ -152,6 +151,8 @@ export type GraphNode = {
   label: string;
   type: string;
   path: string;
+  parentId?: string | null;
+  stats: GraphNodeStats;
   metadata: Record<string, unknown>;
 };
 
@@ -165,4 +166,15 @@ export type GraphEdge = {
 export type GraphView = {
   nodes: GraphNode[];
   edges: GraphEdge[];
+};
+
+export type GraphNodeStats = {
+  evidenceCount: number;
+  warningConflictCount: number;
+  blockingConflictCount: number;
+  boundedContextCount: number;
+  aggregateCount: number;
+  commandCount: number;
+  entityCount: number;
+  eventCount: number;
 };

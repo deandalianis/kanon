@@ -33,6 +33,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class WorkbenchWorkflowService {
@@ -43,6 +44,7 @@ public class WorkbenchWorkflowService {
     private final RunService runService;
     private final ProposalRepository proposalRepository;
     private final LlmProviderRouter llmProviderRouter;
+    private final BddScenarioExtractor bddScenarioExtractor;
     private final WorkbenchProperties properties;
     private final SpecCompiler compiler = new SpecCompiler();
     private final SpecLoader specLoader = new SpecLoader();
@@ -50,18 +52,21 @@ public class WorkbenchWorkflowService {
     private final ExtractionMerger extractionMerger = new ExtractionMerger();
     private final DriftAnalyzer driftAnalyzer = new DriftAnalyzer();
     private final ContractDiffService contractDiffService = new ContractDiffService();
+    private final LineageGraphBuilder lineageGraphBuilder = new LineageGraphBuilder();
 
     public WorkbenchWorkflowService(
             WorkspaceService workspaceService,
             RunService runService,
             ProposalRepository proposalRepository,
             LlmProviderRouter llmProviderRouter,
+            BddScenarioExtractor bddScenarioExtractor,
             WorkbenchProperties properties
     ) {
         this.workspaceService = workspaceService;
         this.runService = runService;
         this.proposalRepository = proposalRepository;
         this.llmProviderRouter = llmProviderRouter;
+        this.bddScenarioExtractor = bddScenarioExtractor;
         this.properties = properties;
     }
 
@@ -126,14 +131,88 @@ public class WorkbenchWorkflowService {
                 throw new IllegalStateException("Draft spec blocked by fatal extraction conflicts: " + String.join("; ", fatalConflicts));
             }
             SpecDocument draft = draftSpecBuilder.build(workspace.profile(), extractionResult);
+            SpecDocument enriched = enrichWithBddScenarios(draft, extractionResult);
             Path draftPath = workspaceService.draftSpecPath(projectId);
             Files.createDirectories(draftPath.getParent());
-            Files.writeString(draftPath, JsonSupport.yamlMapper().writeValueAsString(draft));
-            runService.succeed(run, draftPath.toString(), draft, "Draft spec built");
+            Files.writeString(draftPath, JsonSupport.yamlMapper().writeValueAsString(enriched));
+            runService.succeed(run, draftPath.toString(), enriched, "Draft spec built");
             return draftPath;
         } catch (Exception exception) {
             runService.fail(run, exception);
             throw new IllegalStateException("Draft spec build failed", exception);
+        }
+    }
+
+    private SpecDocument enrichWithBddScenarios(SpecDocument draft, ExtractionResult extractionResult) {
+        Map<String, ExtractionResult.Fact> methodFactsByName = extractionResult.facts().stream()
+                .filter(fact -> "method".equals(fact.kind()) && fact.attributes().containsKey("methodBody"))
+                .collect(Collectors.toMap(
+                        fact -> String.valueOf(fact.attributes().getOrDefault("name", "")),
+                        fact -> fact,
+                        (a, b) -> a
+                ));
+
+        Map<String, String> classNameByMethod = extractionResult.facts().stream()
+                .filter(fact -> "type".equals(fact.kind()))
+                .collect(Collectors.toMap(
+                        fact -> String.valueOf(fact.attributes().getOrDefault("name", "")),
+                        fact -> String.valueOf(fact.attributes().getOrDefault("name", "")),
+                        (a, b) -> a
+                ));
+
+        List<SpecDocument.BoundedContext> enrichedContexts = draft.boundedContexts().stream()
+                .map(ctx -> ctx.withAggregates(
+                        ctx.aggregates().stream()
+                                .map(agg -> agg.withCommands(
+                                        agg.commands().stream()
+                                                .map(cmd -> {
+                                                    String methodName = Character.toLowerCase(cmd.name().charAt(0)) + cmd.name().substring(1);
+                                                    ExtractionResult.Fact methodFact = methodFactsByName.get(methodName);
+                                                    if (methodFact == null) {
+                                                        return cmd;
+                                                    }
+                                                    String className = classNameByMethod.getOrDefault(agg.name() + "Controller", agg.name());
+                                                    List<SpecDocument.BddScenario> scenarios = bddScenarioExtractor.extract(methodFact, className);
+                                                    return scenarios.isEmpty() ? cmd : cmd.withScenarios(scenarios);
+                                                })
+                                                .toList()
+                                ))
+                                .toList()
+                ))
+                .toList();
+
+        return draft.withBoundedContexts(enrichedContexts);
+    }
+
+    public Path approveDraftSpec(String projectId) {
+        try {
+            Path draftPath = workspaceService.draftSpecPath(projectId);
+            if (!Files.exists(draftPath)) {
+                throw new IllegalStateException("No draft spec found to approve. Build draft spec first.");
+            }
+            
+            String draftContent = Files.readString(draftPath);
+            PlatformTypes.ValidationReport report = validateSpec(draftContent);
+            if (!report.valid()) {
+                throw new IllegalStateException("Draft spec validation failed: " + 
+                    report.issues().stream()
+                        .filter(issue -> "ERROR".equals(issue.level()))
+                        .map(PlatformTypes.ValidationIssue::message)
+                        .collect(Collectors.joining("; ")));
+            }
+            
+            Path approvedPath = workspaceService.approvedSpecPath(projectId);
+            Files.createDirectories(approvedPath.getParent());
+            Files.writeString(approvedPath, draftContent);
+            
+            // Trigger extraction to populate Neo4j if configured
+            if (properties.neo4j().uri() != null && !properties.neo4j().uri().isBlank()) {
+                extract(projectId);
+            }
+            
+            return approvedPath;
+        } catch (Exception exception) {
+            throw new IllegalStateException("Draft spec approval failed", exception);
         }
     }
 
@@ -145,10 +224,11 @@ public class WorkbenchWorkflowService {
         }
         ExtractionResult extractionResult = latestExtraction(projectId);
         String draftSpec = readOrEmpty(draftPath);
+        List<String> richEvidence = buildRichEvidence(draftSpec, extractionResult, workspace.sourcePath(), 10);
         ProposalRequest request = new ProposalRequest(
                 instruction,
                 SPEC_PROPOSAL_SCHEMA,
-                extractionResult.provenance().stream().map(ExtractionResult.Provenance::path).limit(20).toList(),
+                richEvidence,
                 Map.of("title", workspace.name() + " spec proposal", "specPatch", draftSpec)
         );
         String payloadJson = llmProviderRouter.activeProvider().proposeJson(request);
@@ -167,11 +247,16 @@ public class WorkbenchWorkflowService {
 
     public PlatformTypes.StorySpecProposal proposeStory(String projectId, String title, String story, String acceptanceCriteria) {
         Path baseSpec = currentSpecPath(projectId);
+        PlatformTypes.WorkspaceRef workspace = workspaceService.getWorkspace(projectId);
+        String specYaml = readOrEmpty(baseSpec);
+        ExtractionResult extractionResult = safeLatestExtraction(projectId);
+        List<String> richEvidence = buildRichEvidence(specYaml, extractionResult, workspace.sourcePath(), 8);
         ProposalRequest request = new ProposalRequest(
-                "Plan a story-to-spec patch for title '" + title + "' and story '" + story + "'. Acceptance criteria: " + acceptanceCriteria,
+                "Plan a story-to-spec patch for title '" + title + "' and story '" + story + "'. Acceptance criteria: " + acceptanceCriteria
+                        + "\nIMPORTANT: Propose ONLY the new or modified BDD scenarios needed. Output as a valid spec YAML delta.",
                 STORY_PROPOSAL_SCHEMA,
-                List.of(readOrEmpty(baseSpec)),
-                Map.of("title", title, "specPatch", readOrEmpty(baseSpec))
+                richEvidence,
+                Map.of("title", title, "specPatch", specYaml)
         );
         String payloadJson = llmProviderRouter.activeProvider().proposeJson(request);
         PlatformTypes.ProposalAuditRecord audit = new PlatformTypes.ProposalAuditRecord(
@@ -353,139 +438,8 @@ public class WorkbenchWorkflowService {
 
     public PlatformTypes.GraphView lineage(String projectId) {
         CanonicalIr ir = currentIr(projectId);
-        List<PlatformTypes.GraphNode> nodes = new ArrayList<>();
-        List<PlatformTypes.GraphEdge> edges = new ArrayList<>();
-        nodes.add(new PlatformTypes.GraphNode(
-                ir.service().stableId(),
-                ir.service().name(),
-                "service",
-                ir.service().canonicalPath(),
-                Map.of("basePackage", ir.service().basePackage())
-        ));
-        for (CanonicalIr.BoundedContext boundedContext : ir.boundedContexts()) {
-            nodes.add(new PlatformTypes.GraphNode(
-                    boundedContext.stableId(),
-                    boundedContext.name(),
-                    "bounded-context",
-                    boundedContext.canonicalPath(),
-                    Map.of("aggregateCount", boundedContext.aggregates().size())
-            ));
-            edges.add(new PlatformTypes.GraphEdge(
-                    ir.service().stableId() + "->" + boundedContext.stableId(),
-                    ir.service().stableId(),
-                    boundedContext.stableId(),
-                    "DECLARES"
-            ));
-            for (CanonicalIr.Aggregate aggregate : boundedContext.aggregates()) {
-                nodes.add(new PlatformTypes.GraphNode(
-                        aggregate.stableId(),
-                        aggregate.name(),
-                        "aggregate",
-                        aggregate.canonicalPath(),
-                        Map.of(
-                                "commandCount", aggregate.commands().size(),
-                                "entityCount", aggregate.entities().size(),
-                                "eventCount", aggregate.events().size()
-                        )
-                ));
-                edges.add(new PlatformTypes.GraphEdge(
-                        boundedContext.stableId() + "->" + aggregate.stableId(),
-                        boundedContext.stableId(),
-                        aggregate.stableId(),
-                        "DECLARES"
-                ));
-                for (CanonicalIr.Command command : aggregate.commands()) {
-                    nodes.add(new PlatformTypes.GraphNode(
-                            command.stableId(),
-                            command.name(),
-                            "command",
-                            command.canonicalPath(),
-                            Map.of("method", command.http().method(), "path", command.http().path())
-                    ));
-                    edges.add(new PlatformTypes.GraphEdge(
-                            aggregate.stableId() + "->" + command.stableId(),
-                            aggregate.stableId(),
-                            command.stableId(),
-                            "HANDLES"
-                    ));
-                }
-                for (CanonicalIr.Entity entity : aggregate.entities()) {
-                    nodes.add(new PlatformTypes.GraphNode(
-                            entity.stableId(),
-                            entity.name(),
-                            "entity",
-                            entity.canonicalPath(),
-                            Map.of("table", entity.table(), "fieldCount", entity.fields().size())
-                    ));
-                    edges.add(new PlatformTypes.GraphEdge(
-                            aggregate.stableId() + "->" + entity.stableId(),
-                            aggregate.stableId(),
-                            entity.stableId(),
-                            "PERSISTS"
-                    ));
-                }
-                for (CanonicalIr.Event event : aggregate.events()) {
-                    nodes.add(new PlatformTypes.GraphNode(
-                            event.stableId(),
-                            event.name(),
-                            "event",
-                            event.canonicalPath(),
-                            Map.of("topic", event.topic())
-                    ));
-                    edges.add(new PlatformTypes.GraphEdge(
-                            aggregate.stableId() + "->" + event.stableId(),
-                            aggregate.stableId(),
-                            event.stableId(),
-                            "EMITS"
-                    ));
-                }
-            }
-        }
-
         ExtractionResult extractionResult = latestExtraction(projectId);
-        int anchorIndex = 0;
-        for (ExtractionResult.Provenance provenance : extractionResult.provenance().stream().limit(25).toList()) {
-            String anchorId = "anchor-" + anchorIndex++;
-            nodes.add(new PlatformTypes.GraphNode(
-                    anchorId,
-                    provenance.symbol(),
-                    "code-anchor",
-                    provenance.file() + ":" + provenance.startLine(),
-                    Map.of(
-                            "file", provenance.file(),
-                            "startLine", provenance.startLine(),
-                            "endLine", provenance.endLine()
-                    )
-            ));
-            edges.add(new PlatformTypes.GraphEdge(
-                    ir.service().stableId() + "->" + anchorId,
-                    ir.service().stableId(),
-                    anchorId,
-                    "EVIDENCED_BY"
-            ));
-        }
-        for (ExtractionResult.Conflict conflict : extractionResult.conflicts()) {
-            String conflictId = "conflict-" + UUID.nameUUIDFromBytes((conflict.path() + conflict.message()).getBytes()).toString();
-            nodes.add(new PlatformTypes.GraphNode(
-                    conflictId,
-                    conflict.path(),
-                    "conflict",
-                    conflict.path(),
-                    Map.of(
-                            "message", conflict.message(),
-                            "preferredSource", conflict.preferredSource(),
-                            "alternateSource", conflict.alternateSource(),
-                            "fatal", conflict.fatal()
-                    )
-            ));
-            edges.add(new PlatformTypes.GraphEdge(
-                    ir.service().stableId() + "->" + conflictId,
-                    ir.service().stableId(),
-                    conflictId,
-                    conflict.fatal() ? "BLOCKS" : "WARNS"
-            ));
-        }
-        return new PlatformTypes.GraphView(nodes, edges);
+        return lineageGraphBuilder.build(ir, extractionResult);
     }
 
     public List<PlatformTypes.SpecProposal> listSpecProposals(String projectId) {
@@ -585,7 +539,46 @@ public class WorkbenchWorkflowService {
         }
     }
 
-    @SuppressWarnings("unchecked")
+    private ExtractionResult safeLatestExtraction(String projectId) {
+        try {
+            return latestExtraction(projectId);
+        } catch (Exception ignored) {
+            return new ExtractionResult(List.of(), List.of(), 0.0, List.of());
+        }
+    }
+
+    private List<String> buildRichEvidence(String specYaml, ExtractionResult extractionResult, String sourcePath, int maxSourceFiles) {
+        List<String> evidence = new ArrayList<>();
+        if (specYaml != null && !specYaml.isBlank()) {
+            evidence.add("SPEC:\n" + specYaml);
+        }
+        List<ExtractionResult.Fact> methodFacts = extractionResult.facts().stream()
+                .filter(fact -> "method".equals(fact.kind()) && fact.attributes().containsKey("methodBody"))
+                .limit(maxSourceFiles)
+                .toList();
+        for (ExtractionResult.Fact fact : methodFacts) {
+            String className = String.valueOf(fact.attributes().getOrDefault("name", "Unknown"));
+            String body = String.valueOf(fact.attributes().get("methodBody"));
+            evidence.add("SOURCE - " + className + ":\n" + body);
+        }
+        if (evidence.size() == 1 && !extractionResult.provenance().isEmpty()) {
+            extractionResult.provenance().stream()
+                    .map(ExtractionResult.Provenance::file)
+                    .distinct()
+                    .limit(maxSourceFiles)
+                    .forEach(file -> {
+                        try {
+                            Path filePath = Path.of(file);
+                            if (Files.exists(filePath)) {
+                                evidence.add("SOURCE - " + filePath.getFileName() + ":\n" + Files.readString(filePath));
+                            }
+                        } catch (IOException ignored) {
+                        }
+                    });
+        }
+        return List.copyOf(evidence);
+    }
+
     private PlatformTypes.SpecProposal parseSpecProposal(String payloadJson, PlatformTypes.ProposalAuditRecord audit) {
         Map<String, Object> payload = parseJsonPayload(payloadJson);
         return new PlatformTypes.SpecProposal(
@@ -602,7 +595,6 @@ public class WorkbenchWorkflowService {
         );
     }
 
-    @SuppressWarnings("unchecked")
     private PlatformTypes.StorySpecProposal parseStoryProposal(
             String payloadJson,
             String title,

@@ -129,7 +129,8 @@ public final class MigrationService {
                                                 command.rules(),
                                                 command.emits().stream()
                                                         .map(name -> name.equals(migration.from()) ? migration.to() : name)
-                                                        .collect(Collectors.toList())
+                                                        .collect(Collectors.toList()),
+                                                command.scenarios()
                                         ))
                                         .toList();
                                 return aggregate.withEvents(events).withCommands(commands);

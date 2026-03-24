@@ -7,7 +7,6 @@ import io.kanon.specctl.workbench.service.WorkbenchWorkflowService;
 import io.kanon.specctl.workbench.service.WorkspaceService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -55,16 +54,64 @@ public class WorkbenchController {
 
     @PostMapping("/projects/import")
     public PlatformTypes.WorkspaceRef importProject(@Valid @RequestBody ImportProjectRequest request) {
-        return workspaceService.importProject(
-                request.name(),
-                Path.of(request.sourcePath()),
+        Path sourcePath = Path.of(request.sourcePath());
+        String name = sourcePath.getFileName().toString();
+        
+        // Auto-derive serviceName from folder name (kebab-case to camelCase)
+        String serviceName = toCamelCase(name);
+        
+        // Auto-derive basePackage from serviceName
+        String basePackage = "com.kanon." + toPackageName(name);
+        
+        PlatformTypes.CapabilitySet defaultCapabilities = new PlatformTypes.CapabilitySet(
+                true,  // postgres
+                false, // messaging
+                true,  // security
+                true,  // cache
+                true   // observability
+        );
+        
+        PlatformTypes.WorkspaceRef workspace = workspaceService.importProject(
+                name,
+                sourcePath,
                 new PlatformTypes.ProjectProfile(
-                        request.serviceName(),
-                        request.basePackage(),
+                        serviceName,
+                        basePackage,
                         "spring-boot",
-                        request.capabilities()
+                        defaultCapabilities
                 )
         );
+        
+        // Auto-initialize: extract -> build draft -> approve -> populate graph
+        try {
+            workflowService.extract(workspace.id());
+            workflowService.buildDraftSpec(workspace.id());
+            workflowService.approveDraftSpec(workspace.id());
+        } catch (Exception e) {
+            // Log but don't fail import - user can manually trigger these steps
+        }
+        
+        return workspace;
+    }
+    
+    private String toCamelCase(String kebabCase) {
+        StringBuilder result = new StringBuilder();
+        boolean capitalizeNext = false;
+        for (char c : kebabCase.toCharArray()) {
+            if (c == '-' || c == '_') {
+                capitalizeNext = true;
+            } else if (capitalizeNext) {
+                result.append(Character.toUpperCase(c));
+                capitalizeNext = false;
+            } else {
+                result.append(c);
+            }
+        }
+        return result.toString();
+    }
+    
+    private String toPackageName(String name) {
+        return name.toLowerCase().replace('-', '.').replace('_', '.');
     }
 
     @GetMapping("/projects/{projectId}")
@@ -85,6 +132,11 @@ public class WorkbenchController {
     @PostMapping("/projects/{projectId}/draft-spec")
     public Map<String, Object> draftSpec(@PathVariable String projectId) {
         return Map.of("path", workflowService.buildDraftSpec(projectId).toString());
+    }
+
+    @PostMapping("/projects/{projectId}/approve-spec")
+    public Map<String, Object> approveSpec(@PathVariable String projectId) {
+        return Map.of("path", workflowService.approveDraftSpec(projectId).toString());
     }
 
     @GetMapping("/projects/{projectId}/spec")
@@ -221,11 +273,7 @@ public class WorkbenchController {
     }
 
     public record ImportProjectRequest(
-            String name,
-            @NotBlank String sourcePath,
-            @NotBlank String serviceName,
-            @NotBlank String basePackage,
-            @NotNull PlatformTypes.CapabilitySet capabilities
+            @NotBlank String sourcePath
     ) {
     }
 
