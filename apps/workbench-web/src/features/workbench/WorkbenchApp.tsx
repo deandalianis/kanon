@@ -3,6 +3,7 @@ import { WorkbenchHeader } from "./components/WorkbenchHeader";
 import { StageNavigator } from "./components/StageNavigator";
 import { ContractsStage } from "./components/ContractsStage";
 import { GenerationStage } from "./components/GenerationStage";
+import { AskStage } from "./components/AskStage";
 import { GraphStage } from "./components/GraphStage";
 import { IrStage } from "./components/IrStage";
 import { SpecStage } from "./components/SpecStage";
@@ -144,6 +145,11 @@ export function WorkbenchApp() {
             contractLoading={controller.contractDiffQuery.isLoading}
             onScanDrift={() => controller.driftMutation.mutate()}
             driftPending={controller.driftMutation.isPending}
+          />
+        ) : controller.activeStage === "ask" ? (
+          <AskStage
+            projectId={controller.selectedProjectId}
+            hasSpec={controller.hasAnySpec}
           />
         ) : (
           <GraphStage

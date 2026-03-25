@@ -33,10 +33,15 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class WorkbenchWorkflowService {
+    private static final Logger log = LoggerFactory.getLogger(WorkbenchWorkflowService.class);
     private static final String SPEC_PROPOSAL_SCHEMA = "SpecProposal(title, summary, specPatch, migrationHints, contractImpacts, acceptanceTests, evidencePaths)";
     private static final String STORY_PROPOSAL_SCHEMA = "StorySpecProposal(title, story, acceptanceCriteria, specPatch, migrationPlan, contractPreview, acceptanceTests)";
 
@@ -53,6 +58,8 @@ public class WorkbenchWorkflowService {
     private final DriftAnalyzer driftAnalyzer = new DriftAnalyzer();
     private final ContractDiffService contractDiffService = new ContractDiffService();
     private final LineageGraphBuilder lineageGraphBuilder = new LineageGraphBuilder();
+    private final IrContextBuilder irContextBuilder = new IrContextBuilder();
+    private final Neo4jContextProvider neo4jContextProvider = new Neo4jContextProvider();
 
     public WorkbenchWorkflowService(
             WorkspaceService workspaceService,
@@ -135,6 +142,7 @@ public class WorkbenchWorkflowService {
             Path draftPath = workspaceService.draftSpecPath(projectId);
             Files.createDirectories(draftPath.getParent());
             Files.writeString(draftPath, JsonSupport.yamlMapper().writeValueAsString(enriched));
+            CompletableFuture.runAsync(() -> llmEnrichDraftIfFirstLoad(projectId, draftPath, extractionResult, workspace.sourcePath()));
             runService.succeed(run, draftPath.toString(), enriched, "Draft spec built");
             return draftPath;
         } catch (Exception exception) {
@@ -436,6 +444,37 @@ public class WorkbenchWorkflowService {
         }
     }
 
+    public PlatformTypes.ChatAnswer ask(String projectId, String question) {
+        CanonicalIr ir = currentIr(projectId);
+        Path specPath = currentSpecPath(projectId);
+
+        List<String> context = new ArrayList<>();
+
+        String specYaml = readOrEmpty(specPath);
+        if (!specYaml.isBlank()) {
+            context.add("=== APPROVED SPEC (YAML) ===\n" + specYaml);
+        }
+
+        context.addAll(irContextBuilder.buildAllContext(ir, question));
+
+        if (properties.neo4j().uri() != null && !properties.neo4j().uri().isBlank()) {
+            RunEntity latestExtraction = runService.latest(projectId, PlatformTypes.RunKind.EXTRACTION);
+            if (latestExtraction != null) {
+                context.addAll(neo4jContextProvider.queryContext(
+                        properties.neo4j().uri(),
+                        properties.neo4j().username(),
+                        properties.neo4j().password(),
+                        latestExtraction.getId(),
+                        question
+                ));
+            }
+        }
+
+        ProposalRequest request = new ProposalRequest(question, null, context, Map.of());
+        String answer = llmProviderRouter.activeProvider().proposeText(request);
+        return new PlatformTypes.ChatAnswer(question, answer, Instant.now());
+    }
+
     public PlatformTypes.GraphView lineage(String projectId) {
         CanonicalIr ir = currentIr(projectId);
         ExtractionResult extractionResult = latestExtraction(projectId);
@@ -456,6 +495,41 @@ public class WorkbenchWorkflowService {
                 .map(entity -> rebindProposalId(entity, JsonCodec.read(entity.getPayloadJson(), PlatformTypes.StorySpecProposal.class)))
                 .sorted(Comparator.comparing(PlatformTypes.StorySpecProposal::title))
                 .toList();
+    }
+
+    private void llmEnrichDraftIfFirstLoad(String projectId, Path draftPath, ExtractionResult extractionResult, String sourcePath) {
+        if (Files.exists(workspaceService.approvedSpecPath(projectId))) {
+            return;
+        }
+        long start = System.currentTimeMillis();
+        log.info("[LLM-ENRICH] Starting background enrichment for project {} with model {}", projectId, llmProviderRouter.activeProvider().defaultModel());
+        try {
+            String draftSpec = readOrEmpty(draftPath);
+            List<String> evidence = buildRichEvidence(draftSpec, extractionResult, sourcePath, 10);
+            ProposalRequest request = new ProposalRequest(
+                    "Review this spec extracted from source code. Enrich it with meaningful BDD scenarios that capture real business intent, add missing validation rules inferred from the code, and improve scenario descriptions to reflect what the code actually does. Return the complete enriched spec as specPatch.",
+                    SPEC_PROPOSAL_SCHEMA,
+                    evidence,
+                    Map.of("title", "Initial LLM enrichment", "specPatch", draftSpec)
+            );
+            log.info("[LLM-ENRICH] Sending request to LLM for project {}", projectId);
+            String payloadJson = llmProviderRouter.activeProvider().proposeJson(request);
+            long llmDone = System.currentTimeMillis();
+            log.info("[LLM-ENRICH] LLM response received for project {} in {}s", projectId, TimeUnit.MILLISECONDS.toSeconds(llmDone - start));
+            log.debug("[LLM-ENRICH] Raw LLM response (first 500 chars): {}", payloadJson.substring(0, Math.min(500, payloadJson.length())));
+            Map<String, Object> payload = parseJsonPayload(payloadJson);
+            String specPatch = String.valueOf(payload.getOrDefault("specPatch", ""));
+            if (!specPatch.isBlank() && !"null".equals(specPatch)) {
+                Files.writeString(draftPath, specPatch);
+                long total = System.currentTimeMillis() - start;
+                log.info("[LLM-ENRICH] Enrichment completed for project {} in {}s - draft updated", projectId, TimeUnit.MILLISECONDS.toSeconds(total));
+            } else {
+                log.warn("[LLM-ENRICH] LLM returned empty specPatch for project {} after {}s", projectId, TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis() - start));
+            }
+        } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - start;
+            log.error("[LLM-ENRICH] Enrichment failed for project {} after {}s", projectId, TimeUnit.MILLISECONDS.toSeconds(elapsed), e);
+        }
     }
 
     private ExtractionResult latestExtraction(String projectId) {

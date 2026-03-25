@@ -168,6 +168,12 @@ export type GraphView = {
   edges: GraphEdge[];
 };
 
+export type ChatAnswer = {
+  question: string;
+  answer: string;
+  askedAt: string;
+};
+
 export type GraphNodeStats = {
   evidenceCount: number;
   warningConflictCount: number;

@@ -265,4 +265,11 @@ public final class PlatformTypes {
             importRoots = MoreCollections.immutableList(importRoots);
         }
     }
+
+    public record ChatAnswer(
+            String question,
+            String answer,
+            Instant askedAt
+    ) {
+    }
 }

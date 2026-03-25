@@ -1,6 +1,6 @@
 import type { CapabilitySet } from "../../types";
 
-export const PIPELINE_STAGES = ["spec", "proposals", "drift", "graph"] as const;
+export const PIPELINE_STAGES = ["spec", "proposals", "drift", "graph", "ask"] as const;
 
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];
 export type StageStatus = "healthy" | "needs-review" | "blocked" | "not-loaded";
@@ -108,6 +108,11 @@ export const IMPORT_DEFAULTS: ImportFormState = {
   sourcePath: ""
 };
 
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 export const STORY_DEFAULTS: StoryFormState = {
   title: "",
   story: "",
@@ -136,6 +141,10 @@ export const PIPELINE_STAGE_META: Record<PipelineStage, { label: string; subtitl
   graph: {
     label: "Graph",
     subtitle: "Lineage visualization and impact analysis"
+  },
+  ask: {
+    label: "Ask",
+    subtitle: "Question-answer over the spec"
   }
 };
 

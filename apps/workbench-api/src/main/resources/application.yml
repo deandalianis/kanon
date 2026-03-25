@@ -43,9 +43,9 @@ kanon:
     username: ${KANON_NEO4J_USERNAME:neo4j}
     password: ${KANON_NEO4J_PASSWORD:password}
   ai:
-    provider: ${KANON_AI_PROVIDER:heuristic}
+    provider: ${KANON_AI_PROVIDER:ollama}
     hosted-base-url: ${KANON_AI_HOSTED_BASE_URL:}
     hosted-api-key: ${KANON_AI_HOSTED_API_KEY:}
-    ollama-base-url: ${KANON_AI_OLLAMA_BASE_URL:http://ollama:11434}
+    ollama-base-url: ${KANON_AI_OLLAMA_BASE_URL:http://localhost:11434}
     hosted-model: ${KANON_AI_HOSTED_MODEL:gpt-4o-mini}
-    ollama-model: ${KANON_AI_OLLAMA_MODEL:qwen2.5-coder:7b-instruct}
+    ollama-model: ${KANON_AI_OLLAMA_MODEL:qwen2.5-coder:14b-instruct}

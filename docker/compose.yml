@@ -31,13 +31,14 @@ services:
       KANON_NEO4J_URI: bolt://neo4j:7687
       KANON_NEO4J_USERNAME: neo4j
       KANON_NEO4J_PASSWORD: kanonpassword
-      KANON_AI_PROVIDER: ${KANON_AI_PROVIDER:-heuristic}
+      KANON_AI_PROVIDER: ${KANON_AI_PROVIDER:-ollama}
       KANON_AI_HOSTED_BASE_URL: ${KANON_AI_HOSTED_BASE_URL:-}
       KANON_AI_HOSTED_API_KEY: ${KANON_AI_HOSTED_API_KEY:-}
       KANON_AI_HOSTED_MODEL: ${KANON_AI_HOSTED_MODEL:-gpt-4o-mini}
-      KANON_AI_OLLAMA_BASE_URL: http://ollama:11434
-      KANON_AI_OLLAMA_MODEL: ${KANON_AI_OLLAMA_MODEL:-qwen2.5-coder:7b-instruct}
+      KANON_AI_OLLAMA_BASE_URL: http://host.docker.internal:11434
+      KANON_AI_OLLAMA_MODEL: ${KANON_AI_OLLAMA_MODEL:-qwen2.5-coder:14b-instruct}
       KANON_IMPORT_ROOTS: /workspace,${HOME}
+      LOGGING_LEVEL_IO_KANON_SPECCTL_WORKBENCH_SERVICE: DEBUG
     volumes:
       - ..:/workspace
       - ${HOME}:${HOME}:ro
@@ -82,13 +83,45 @@ services:
       timeout: 10s
       retries: 12
 
-  ollama:
-    image: ollama/ollama:0.6.2
-    profiles: ["ai-local"]
-    volumes:
-      - ollama-data:/root/.ollama
-    ports:
-      - "11434:11434"
+  # NOTE: For Mac M3 with Metal GPU acceleration, use native Ollama instead of Docker:
+  # 1. Install: brew install ollama
+  # 2. Start: ollama serve
+  # 3. Pull model: ollama pull qwen2.5-coder:14b-instruct
+  # 4. Set context: OLLAMA_NUM_CTX=16384 ollama serve
+  # Docker Ollama runs in Linux VM and cannot access Metal GPU on Mac
+  
+  # ollama:
+  #   image: ollama/ollama:0.6.2
+  #   profiles: ["ai-local"]
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   healthcheck:
+  #     test: ["CMD", "ollama", "list"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 12
+  #     start_period: 15s
+  #   environment:
+  #     OLLAMA_MAX_LOADED_MODELS: 1
+  #     OLLAMA_NUM_PARALLEL: 1
+  #     OLLAMA_NUM_CTX: 16384
+  #     OLLAMA_GPU_LAYERS: 99
+  #     OLLAMA_BATCH_SIZE: 512
+  #     OLLAMA_KEEP_ALIVE: 5m
+
+  # ollama-init:
+  #   image: ollama/ollama:0.6.2
+  #   profiles: ["ai-local"]
+  #   depends_on:
+  #     ollama:
+  #       condition: service_healthy
+  #   environment:
+  #     OLLAMA_HOST: http://ollama:11434
+  #     OLLAMA_MODEL: ${KANON_AI_OLLAMA_MODEL:-qwen2.5-coder:14b-instruct}
+  #   entrypoint: ["/bin/sh", "-c", "ollama pull $$OLLAMA_MODEL"]
+  #   restart: "no"
 
 volumes:
   postgres-data:

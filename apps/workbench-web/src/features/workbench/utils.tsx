@@ -475,6 +475,12 @@ export function buildStageSummaries(input: {
           : input.graphSummary.blockingConflictCount
             ? `${input.graphSummary.blockingConflictCount} blocking conflict(s)`
             : `${input.graphSummary.nodes} nodes and ${input.graphSummary.edges} edges`
+    },
+    {
+      id: "ask",
+      ...PIPELINE_STAGE_META.ask,
+      status: !input.hasProject || !input.hasAnySpec ? "not-loaded" : "healthy",
+      detail: !input.hasAnySpec ? "Requires an approved spec" : "Ready to answer questions"
     }
   ];
 }

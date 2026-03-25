@@ -5,6 +5,10 @@ import io.kanon.specctl.ir.CanonicalIr;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
+import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
+import org.neo4j.driver.Session;
+import org.neo4j.driver.Values;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -74,6 +78,94 @@ public final class VersionedGraphService {
             for (String statement : ingestStatements(generatorRunId, ir, extractionResult)) {
                 session.run(statement);
             }
+        }
+    }
+
+    public List<String> queryContext(String uri, String username, String password, String runId, List<String> keywords) {
+        List<String> chunks = new ArrayList<>();
+        try (Driver driver = GraphDatabase.driver(uri, AuthTokens.basic(username, password));
+             Session session = driver.session()) {
+            chunks.add(serviceTopology(session, runId));
+            chunks.addAll(keywordMatchedAggregates(session, runId, keywords));
+            chunks.addAll(keywordMatchedCommands(session, runId, keywords));
+        } catch (Exception ignored) {
+        }
+        chunks.removeIf(String::isBlank);
+        return List.copyOf(chunks);
+    }
+
+    private String serviceTopology(Session session, String runId) {
+        Result result = session.run(
+                "MATCH (s:Service {version: $runId})-[:DECLARES]->(bc:BoundedContext)-[:DECLARES]->(a:Aggregate) "
+                + "RETURN s.name AS service, bc.name AS boundedContext, collect(a.name) AS aggregates ORDER BY bc.name",
+                Values.parameters("runId", runId));
+        StringBuilder sb = new StringBuilder("=== SERVICE TOPOLOGY (Neo4j) ===\n");
+        while (result.hasNext()) {
+            Record rec = result.next();
+            sb.append("Service: ").append(rec.get("service").asString()).append("\n");
+            sb.append("  BoundedContext: ").append(rec.get("boundedContext").asString()).append("\n");
+            for (Object agg : rec.get("aggregates").asList()) {
+                sb.append("    Aggregate: ").append(agg).append("\n");
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private List<String> keywordMatchedAggregates(Session session, String runId, List<String> keywords) {
+        if (keywords.isEmpty()) return List.of();
+        Result result = session.run(
+                "MATCH (a:Aggregate {version: $runId}) "
+                + "WHERE any(kw IN $keywords WHERE toLower(a.name) CONTAINS kw) "
+                + "OPTIONAL MATCH (a)-[:DECLARES]->(c:Command) "
+                + "OPTIONAL MATCH (c)-[:GUARDED_BY]->(r:Rule) "
+                + "OPTIONAL MATCH (a)-[:DECLARES]->(e:Entity) "
+                + "OPTIONAL MATCH (a)-[:DECLARES]->(ev:Event) "
+                + "RETURN a.name AS aggregate, collect(DISTINCT c.name) AS commands, "
+                + "collect(DISTINCT r.name) AS rules, collect(DISTINCT e.name) AS entities, collect(DISTINCT ev.name) AS events",
+                Values.parameters("runId", runId, "keywords", keywords));
+        List<String> chunks = new ArrayList<>();
+        while (result.hasNext()) {
+            Record rec = result.next();
+            StringBuilder sb = new StringBuilder();
+            sb.append("=== AGGREGATE (Neo4j): ").append(rec.get("aggregate").asString()).append(" ===\n");
+            appendList(sb, "Commands", rec.get("commands").asList());
+            appendList(sb, "Rules", rec.get("rules").asList());
+            appendList(sb, "Entities", rec.get("entities").asList());
+            appendList(sb, "Events", rec.get("events").asList());
+            chunks.add(sb.toString().trim());
+        }
+        return chunks;
+    }
+
+    private List<String> keywordMatchedCommands(Session session, String runId, List<String> keywords) {
+        if (keywords.isEmpty()) return List.of();
+        Result result = session.run(
+                "MATCH (a:Aggregate {version: $runId})-[:DECLARES]->(c:Command) "
+                + "WHERE any(kw IN $keywords WHERE toLower(c.name) CONTAINS kw OR toLower(a.name) CONTAINS kw) "
+                + "OPTIONAL MATCH (c)-[:GUARDED_BY]->(r:Rule) "
+                + "RETURN a.name AS aggregate, c.name AS command, c.path AS path, collect(DISTINCT r.name) AS rules "
+                + "ORDER BY a.name, c.name LIMIT 20",
+                Values.parameters("runId", runId, "keywords", keywords));
+        List<String> chunks = new ArrayList<>();
+        while (result.hasNext()) {
+            Record rec = result.next();
+            StringBuilder sb = new StringBuilder();
+            sb.append("=== COMMAND (Neo4j): ").append(rec.get("aggregate").asString())
+                    .append(" → ").append(rec.get("command").asString()).append(" ===\n");
+            sb.append("Path: ").append(rec.get("path").asString()).append("\n");
+            appendList(sb, "Rules", rec.get("rules").asList());
+            chunks.add(sb.toString().trim());
+        }
+        return chunks;
+    }
+
+    private void appendList(StringBuilder sb, String label, List<Object> items) {
+        List<String> filtered = items.stream()
+                .filter(o -> o != null && !o.toString().isBlank())
+                .map(Object::toString)
+                .toList();
+        if (!filtered.isEmpty()) {
+            sb.append(label).append(": ").append(String.join(", ", filtered)).append("\n");
         }
     }
 

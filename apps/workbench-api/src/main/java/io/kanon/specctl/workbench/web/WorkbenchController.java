@@ -237,6 +237,14 @@ public class WorkbenchController {
         return workflowService.lineage(projectId);
     }
 
+    @PostMapping("/projects/{projectId}/ask")
+    public PlatformTypes.ChatAnswer ask(
+            @PathVariable String projectId,
+            @Valid @RequestBody AskRequest request
+    ) {
+        return workflowService.ask(projectId, request.question());
+    }
+
     @GetMapping(path = "/runs/{runId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamRun(@PathVariable String runId) {
         SseEmitter emitter = new SseEmitter(30_000L);
@@ -291,6 +299,9 @@ public class WorkbenchController {
             @NotBlank String story,
             @NotBlank String acceptanceCriteria
     ) {
+    }
+
+    public record AskRequest(@NotBlank String question) {
     }
 
     public record RunSummary(

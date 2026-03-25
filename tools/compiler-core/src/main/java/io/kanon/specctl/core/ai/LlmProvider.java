@@ -6,4 +6,8 @@ public interface LlmProvider {
     String defaultModel();
 
     String proposeJson(ProposalRequest request);
+
+    default String proposeText(ProposalRequest request) {
+        return proposeJson(request);
+    }
 }

@@ -41,7 +41,30 @@ public class OllamaProvider implements LlmProvider {
                 .bodyValue(Map.of(
                         "model", defaultModel(),
                         "stream", false,
-                        "prompt", "Respond with JSON only. " + request.instruction() + "\nSchema: " + request.targetSchema() + "\nEvidence:\n" + String.join("\n", request.evidenceChunks())
+                        "format", "json",
+                        "prompt", request.instruction() + "\nSchema: " + request.targetSchema() + "\nEvidence:\n" + String.join("\n", request.evidenceChunks())
+                ))
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block();
+        return String.valueOf(response.get("response"));
+    }
+
+    @Override
+    public String proposeText(ProposalRequest request) {
+        if (properties.ai().ollamaBaseUrl() == null) {
+            throw new IllegalStateException("Ollama provider is not configured");
+        }
+        String context = String.join("\n\n", request.evidenceChunks());
+        String prompt = "You are a domain expert on this service spec. Answer the following question using only the provided spec context.\n\nContext:\n" + context + "\n\nQuestion: " + request.instruction();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> response = webClient.post()
+                .uri(properties.ai().ollamaBaseUrl() + "/api/generate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "model", defaultModel(),
+                        "stream", false,
+                        "prompt", prompt
                 ))
                 .retrieve()
                 .bodyToMono(Map.class)

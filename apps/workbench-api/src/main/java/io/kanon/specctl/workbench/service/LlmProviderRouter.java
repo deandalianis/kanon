@@ -19,6 +19,12 @@ public class LlmProviderRouter {
     }
 
     public LlmProvider activeProvider() {
-        return providers.getOrDefault(properties.ai().provider(), providers.get("heuristic"));
+        String name = properties.ai().provider();
+        LlmProvider provider = name != null ? providers.get(name) : null;
+        if (provider == null) {
+            throw new IllegalStateException(
+                    "No AI provider configured. Set KANON_AI_PROVIDER=ollama or KANON_AI_PROVIDER=hosted.");
+        }
+        return provider;
     }
 }

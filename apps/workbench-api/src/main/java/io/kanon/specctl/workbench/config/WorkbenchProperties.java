@@ -19,7 +19,7 @@ public record WorkbenchProperties(
                 .filter(Objects::nonNull)
                 .toList();
         neo4j = neo4j == null ? new Neo4j(null, "neo4j", "password") : neo4j;
-        ai = ai == null ? new Ai("heuristic", null, null, null, "gpt-4o-mini", "qwen2.5-coder:7b-instruct") : ai;
+        ai = ai == null ? new Ai("heuristic", null, null, null, "gpt-4o-mini", "qwen2.5-coder:14b-instruct") : ai;
     }
 
     public record Neo4j(String uri, String username, String password) {
