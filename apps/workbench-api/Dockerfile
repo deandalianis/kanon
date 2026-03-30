@@ -5,7 +5,7 @@ COPY . .
 
 RUN chmod +x gradlew && ./gradlew :apps:workbench-api:bootJar --no-daemon
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jdk
 WORKDIR /app
 
 RUN apt-get update \

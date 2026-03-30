@@ -1,11 +1,10 @@
 package io.kanon.specctl.workbench.service;
 
 import io.kanon.specctl.core.platform.PlatformTypes;
+import io.kanon.specctl.extraction.ir.ExtractionWorkspaceConfig;
 import io.kanon.specctl.workbench.config.WorkbenchProperties;
 import io.kanon.specctl.workbench.persistence.ProjectEntity;
 import io.kanon.specctl.workbench.persistence.ProjectRepository;
-import org.springframework.stereotype.Service;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,6 +12,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.stream.Collectors;
+import org.springframework.stereotype.Service;
 
 @Service
 public class WorkspaceService {
@@ -24,7 +24,8 @@ public class WorkspaceService {
         this.properties = properties;
     }
 
-    public PlatformTypes.WorkspaceRef importProject(String name, Path sourcePath, PlatformTypes.ProjectProfile profile) {
+    public PlatformTypes.WorkspaceRef importProject(String name, Path sourcePath,
+                                                    PlatformTypes.ProjectProfile profile) {
         Path resolvedSourcePath = sourcePath.toAbsolutePath().normalize();
         if (!Files.exists(resolvedSourcePath)) {
             throw new IllegalArgumentException(missingSourcePathMessage(resolvedSourcePath));
@@ -40,19 +41,17 @@ public class WorkspaceService {
         String normalizedName = name == null || name.isBlank() ? resolvedSourcePath.getFileName().toString() : name;
         var existingByName = projectRepository.findByName(normalizedName);
         if (existingByName.isPresent()) {
-            throw new IllegalArgumentException("Project name is already registered for a different source path: " + normalizedName);
+            throw new IllegalArgumentException(
+                    "Project name is already registered for a different source path: " + normalizedName);
         }
         String slug = slugify(normalizedName);
         Path workspacePath = resolveWorkspacePath(slug);
         try {
             Files.createDirectories(workspacePath);
-            Files.createDirectories(workspacePath.resolve("specs/approved"));
-            Files.createDirectories(workspacePath.resolve("specs/drafts"));
-            Files.createDirectories(workspacePath.resolve("proposals"));
-            Files.createDirectories(workspacePath.resolve("runs"));
-            Files.createDirectories(workspacePath.resolve("contracts/baseline"));
-            Files.createDirectories(workspacePath.resolve("generated"));
-            copyIfExists(resolvedSourcePath.resolve("specs/service.yaml"), workspacePath.resolve("specs/approved/service.yaml"));
+            Files.createDirectories(workspacePath.resolve("semantic-specs/approved"));
+            Files.createDirectories(workspacePath.resolve("semantic-specs/drafts"));
+            Files.createDirectories(workspacePath.resolve("runs/evidence"));
+            Files.createDirectories(workspacePath.resolve("graph/manifests"));
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to initialize workspace", exception);
         }
@@ -65,6 +64,7 @@ public class WorkspaceService {
         entity.setBasePackage(profile.basePackage());
         entity.setFramework(profile.framework());
         entity.setCapabilitiesJson(JsonCodec.write(profile.capabilities()));
+        entity.setExtractionConfigJson(JsonCodec.write(profile.extraction()));
         entity.setCreatedAt(Instant.now());
         entity = projectRepository.save(entity);
         return toWorkspaceRef(entity);
@@ -83,11 +83,11 @@ public class WorkspaceService {
     }
 
     public Path approvedSpecPath(String projectId) {
-        return Path.of(getWorkspace(projectId).workspacePath()).resolve("specs/approved/service.yaml");
+        return Path.of(getWorkspace(projectId).workspacePath()).resolve("semantic-specs/approved/service.yaml");
     }
 
     public Path draftSpecPath(String projectId) {
-        return Path.of(getWorkspace(projectId).workspacePath()).resolve("specs/drafts/service.yaml");
+        return Path.of(getWorkspace(projectId).workspacePath()).resolve("semantic-specs/drafts/service.yaml");
     }
 
     public Path workspaceDir(String projectId) {
@@ -104,7 +104,10 @@ public class WorkspaceService {
                         entity.getServiceName(),
                         entity.getBasePackage(),
                         entity.getFramework(),
-                        JsonCodec.read(entity.getCapabilitiesJson(), PlatformTypes.CapabilitySet.class)
+                        JsonCodec.read(entity.getCapabilitiesJson(), PlatformTypes.CapabilitySet.class),
+                        entity.getExtractionConfigJson() == null || entity.getExtractionConfigJson().isBlank()
+                                ? ExtractionWorkspaceConfig.defaultsFor(Path.of(entity.getSourcePath()))
+                                : JsonCodec.read(entity.getExtractionConfigJson(), ExtractionWorkspaceConfig.class)
                 )
         );
     }
@@ -140,6 +143,7 @@ public class WorkspaceService {
                 .collect(Collectors.joining(", "));
         return "Source path is not accessible from the API runtime: " + sourcePath
                 + ". Visible import roots: " + visibleRoots
-                + ". If the API is running in Docker, add a bind mount for the parent directory or choose a path under one of those roots.";
+                +
+                ". If the API is running in Docker, add a bind mount for the parent directory or choose a path under one of those roots.";
     }
 }

@@ -1,10 +1,9 @@
 package io.kanon.specctl.workbench.config;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "kanon")
 public record WorkbenchProperties(

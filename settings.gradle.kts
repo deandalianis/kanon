@@ -1,12 +1,11 @@
 rootProject.name = "kanon"
 
 include(
+    "apps:specctl",
     "apps:workbench-api",
-    "tools:compiler-core",
-    "tools:compiler-dsl",
-    "tools:compiler-ir",
-    "tools:specctl",
-    "tools:extractor-javaparser",
-    "tools:extractor-spoon",
-    "tools:graph-neo4j"
+    "tools:codebase-extractor",
+    "tools:codebase-model",
+    "tools:graph-neo4j",
+    "tools:spec-compiler",
+    "tools:spec-model"
 )

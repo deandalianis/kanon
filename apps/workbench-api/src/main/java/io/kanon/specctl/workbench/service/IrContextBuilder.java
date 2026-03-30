@@ -1,7 +1,6 @@
 package io.kanon.specctl.workbench.service;
 
 import io.kanon.specctl.ir.CanonicalIr;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -23,7 +22,9 @@ final class IrContextBuilder {
                 docs.add(new AggregateDoc(agg.name(), serialize(agg)));
             }
         }
-        if (docs.isEmpty()) return List.of();
+        if (docs.isEmpty()) {
+            return List.of();
+        }
 
         List<String> queryTerms = tokenize(question);
         if (queryTerms.isEmpty()) {
@@ -39,7 +40,9 @@ final class IrContextBuilder {
         for (String term : new HashSet<>(queryTerms)) {
             int count = 0;
             for (List<String> docTokens : tokenizedDocs) {
-                if (docTokens.contains(term)) count++;
+                if (docTokens.contains(term)) {
+                    count++;
+                }
             }
             df.put(term, count);
         }
@@ -52,7 +55,9 @@ final class IrContextBuilder {
             double score = 0.0;
             for (String term : queryTerms) {
                 long tf = docTokens.stream().filter(term::equals).count();
-                if (tf == 0) continue;
+                if (tf == 0) {
+                    continue;
+                }
                 int docFreq = df.getOrDefault(term, 0);
                 double idf = Math.log((n - docFreq + 0.5) / (docFreq + 0.5) + 1.0);
                 double tfNorm = (tf * (K1 + 1.0)) / (tf + K1 * (1.0 - B + B * dl / avgDl));
@@ -74,7 +79,9 @@ final class IrContextBuilder {
                 docs.add(new AggregateDoc(agg.name(), serialize(agg)));
             }
         }
-        if (docs.isEmpty()) return List.of();
+        if (docs.isEmpty()) {
+            return List.of();
+        }
 
         List<String> queryTerms = tokenize(question);
         if (queryTerms.isEmpty()) {
@@ -90,7 +97,9 @@ final class IrContextBuilder {
         for (String term : new HashSet<>(queryTerms)) {
             int count = 0;
             for (List<String> docTokens : tokenizedDocs) {
-                if (docTokens.contains(term)) count++;
+                if (docTokens.contains(term)) {
+                    count++;
+                }
             }
             df.put(term, count);
         }
@@ -103,7 +112,9 @@ final class IrContextBuilder {
             double score = 0.0;
             for (String term : queryTerms) {
                 long tf = docTokens.stream().filter(term::equals).count();
-                if (tf == 0) continue;
+                if (tf == 0) {
+                    continue;
+                }
                 int docFreq = df.getOrDefault(term, 0);
                 double idf = Math.log((n - docFreq + 0.5) / (docFreq + 0.5) + 1.0);
                 double tfNorm = (tf * (K1 + 1.0)) / (tf + K1 * (1.0 - B + B * dl / avgDl));
@@ -141,7 +152,8 @@ final class IrContextBuilder {
                     sb.append(" rules=[").append(ruleIds).append("]");
                 }
                 if (!cmd.scenarios().isEmpty()) {
-                    String names = cmd.scenarios().stream().map(CanonicalIr.BddScenario::name).collect(Collectors.joining("; "));
+                    String names = cmd.scenarios().stream().map(CanonicalIr.BddScenario::name)
+                            .collect(Collectors.joining("; "));
                     sb.append(" scenarios=[").append(names).append("]");
                 }
                 sb.append("\n");
@@ -154,7 +166,9 @@ final class IrContextBuilder {
                         .map(f -> f.name() + "(" + f.type() + ")")
                         .collect(Collectors.joining(", "));
                 sb.append("  ").append(entity.name()).append(" [table=").append(entity.table()).append("]");
-                if (!fields.isEmpty()) sb.append(" fields: ").append(fields);
+                if (!fields.isEmpty()) {
+                    sb.append(" fields: ").append(fields);
+                }
                 sb.append("\n");
             }
         }
@@ -172,13 +186,17 @@ final class IrContextBuilder {
     }
 
     private List<String> tokenize(String text) {
-        if (text == null || text.isBlank()) return List.of();
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
         return Arrays.stream(text.toLowerCase(Locale.ROOT).split("[^a-z0-9]+"))
                 .filter(t -> t.length() > 1)
                 .toList();
     }
 
-    private record AggregateDoc(String name, String text) {}
+    private record AggregateDoc(String name, String text) {
+    }
 
-    private record ScoredDoc(String text, double score) {}
+    private record ScoredDoc(String text, double score) {
+    }
 }

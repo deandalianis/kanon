@@ -1,43 +1,46 @@
 package io.kanon.specctl.workbench.web;
 
 import io.kanon.specctl.core.platform.PlatformTypes;
+import io.kanon.specctl.extraction.ir.ExtractionWorkspaceConfig;
 import io.kanon.specctl.workbench.persistence.RunEntity;
+import io.kanon.specctl.workbench.service.BootstrapWorkflowService;
 import io.kanon.specctl.workbench.service.RunService;
 import io.kanon.specctl.workbench.service.WorkbenchWorkflowService;
 import io.kanon.specctl.workbench.service.WorkspaceService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Executors;
-
 @RestController
 @RequestMapping("/api")
 public class WorkbenchController {
     private final WorkspaceService workspaceService;
+    private final BootstrapWorkflowService bootstrapWorkflowService;
     private final WorkbenchWorkflowService workflowService;
     private final RunService runService;
 
     public WorkbenchController(
             WorkspaceService workspaceService,
+            BootstrapWorkflowService bootstrapWorkflowService,
             WorkbenchWorkflowService workflowService,
             RunService runService
     ) {
         this.workspaceService = workspaceService;
+        this.bootstrapWorkflowService = bootstrapWorkflowService;
         this.workflowService = workflowService;
         this.runService = runService;
     }
@@ -53,24 +56,12 @@ public class WorkbenchController {
     }
 
     @PostMapping("/projects/import")
-    public PlatformTypes.WorkspaceRef importProject(@Valid @RequestBody ImportProjectRequest request) {
-        Path sourcePath = Path.of(request.sourcePath());
+    public BootstrapResponse importProject(@Valid @RequestBody ImportProjectRequest request) {
+        Path sourcePath = Path.of(request.sourcePath().trim());
         String name = sourcePath.getFileName().toString();
-        
-        // Auto-derive serviceName from folder name (kebab-case to camelCase)
         String serviceName = toCamelCase(name);
-        
-        // Auto-derive basePackage from serviceName
         String basePackage = "com.kanon." + toPackageName(name);
-        
-        PlatformTypes.CapabilitySet defaultCapabilities = new PlatformTypes.CapabilitySet(
-                true,  // postgres
-                false, // messaging
-                true,  // security
-                true,  // cache
-                true   // observability
-        );
-        
+
         PlatformTypes.WorkspaceRef workspace = workspaceService.importProject(
                 name,
                 sourcePath,
@@ -78,22 +69,22 @@ public class WorkbenchController {
                         serviceName,
                         basePackage,
                         "spring-boot",
-                        defaultCapabilities
+                        PlatformTypes.CapabilitySet.minimal(),
+                        ExtractionWorkspaceConfig.defaultsFor(sourcePath)
                 )
         );
-        
-        // Auto-initialize: extract -> build draft -> approve -> populate graph
-        try {
-            workflowService.extract(workspace.id());
-            workflowService.buildDraftSpec(workspace.id());
-            workflowService.approveDraftSpec(workspace.id());
-        } catch (Exception e) {
-            // Log but don't fail import - user can manually trigger these steps
-        }
-        
-        return workspace;
+
+        RunEntity bootstrapRun = bootstrapWorkflowService.startBootstrap(workspace.id());
+        return new BootstrapResponse(workspace, bootstrapRun.getId(), PlatformTypes.RunStatus.RUNNING.name());
     }
-    
+
+    @PostMapping("/projects/{projectId}/refresh")
+    public BootstrapResponse refreshProject(@PathVariable String projectId) {
+        PlatformTypes.WorkspaceRef workspace = workspaceService.getWorkspace(projectId);
+        RunEntity bootstrapRun = bootstrapWorkflowService.startBootstrap(projectId);
+        return new BootstrapResponse(workspace, bootstrapRun.getId(), PlatformTypes.RunStatus.RUNNING.name());
+    }
+
     private String toCamelCase(String kebabCase) {
         StringBuilder result = new StringBuilder();
         boolean capitalizeNext = false;
@@ -109,7 +100,7 @@ public class WorkbenchController {
         }
         return result.toString();
     }
-    
+
     private String toPackageName(String name) {
         return name.toLowerCase().replace('-', '.').replace('_', '.');
     }
@@ -124,21 +115,6 @@ public class WorkbenchController {
         return runService.list(projectId).stream().map(this::toRunSummary).toList();
     }
 
-    @PostMapping("/projects/{projectId}/extract")
-    public PlatformTypes.ExtractionRun extract(@PathVariable String projectId) {
-        return workflowService.extract(projectId);
-    }
-
-    @PostMapping("/projects/{projectId}/draft-spec")
-    public Map<String, Object> draftSpec(@PathVariable String projectId) {
-        return Map.of("path", workflowService.buildDraftSpec(projectId).toString());
-    }
-
-    @PostMapping("/projects/{projectId}/approve-spec")
-    public Map<String, Object> approveSpec(@PathVariable String projectId) {
-        return Map.of("path", workflowService.approveDraftSpec(projectId).toString());
-    }
-
     @GetMapping("/projects/{projectId}/spec")
     public PlatformTypes.SpecFile readSpec(
             @PathVariable String projectId,
@@ -147,27 +123,13 @@ public class WorkbenchController {
         return workflowService.readSpecFile(projectId, stage);
     }
 
-    @PutMapping("/projects/{projectId}/spec")
-    public PlatformTypes.SpecFile saveSpec(
-            @PathVariable String projectId,
-            @Valid @RequestBody SaveSpecRequest request
-    ) {
-        return workflowService.saveSpecFile(projectId, request.stage(), request.content());
-    }
-
-    @PostMapping("/projects/{projectId}/spec/validate")
-    public PlatformTypes.ValidationReport validateSpec(
-            @PathVariable String projectId,
-            @RequestBody(required = false) SaveSpecRequest request
-    ) {
-        if (request == null || request.content() == null || request.content().isBlank()) {
-            return workflowService.validateCurrentSpec(projectId);
-        }
-        return workflowService.validateSpec(request.content());
-    }
-
     @GetMapping("/projects/{projectId}/ir")
     public Object currentIr(@PathVariable String projectId) {
+        return workflowService.currentIr(projectId);
+    }
+
+    @GetMapping("/projects/{projectId}/semantic-spec")
+    public Object currentSemanticSpec(@PathVariable String projectId) {
         return workflowService.currentIr(projectId);
     }
 
@@ -176,60 +138,9 @@ public class WorkbenchController {
         return workflowService.currentExtraction(projectId);
     }
 
-    @GetMapping("/projects/{projectId}/artifacts/drift")
-    public PlatformTypes.DriftReport latestDrift(@PathVariable String projectId) {
-        return workflowService.latestDrift(projectId);
-    }
-
-    @PostMapping("/projects/{projectId}/proposals/spec")
-    public PlatformTypes.SpecProposal proposeSpec(
-            @PathVariable String projectId,
-            @Valid @RequestBody ProposalRequest request
-    ) {
-        return workflowService.proposeSpecPatch(projectId, request.instruction());
-    }
-
-    @PostMapping("/projects/{projectId}/proposals/story")
-    public PlatformTypes.StorySpecProposal proposeStory(
-            @PathVariable String projectId,
-            @Valid @RequestBody StoryProposalRequest request
-    ) {
-        return workflowService.proposeStory(projectId, request.title(), request.story(), request.acceptanceCriteria());
-    }
-
-    @GetMapping("/projects/{projectId}/proposals/spec")
-    public List<PlatformTypes.SpecProposal> listSpecProposals(@PathVariable String projectId) {
-        return workflowService.listSpecProposals(projectId);
-    }
-
-    @GetMapping("/projects/{projectId}/proposals/story")
-    public List<PlatformTypes.StorySpecProposal> listStoryProposals(@PathVariable String projectId) {
-        return workflowService.listStoryProposals(projectId);
-    }
-
-    @PostMapping("/projects/{projectId}/proposals/{proposalId}/apply")
-    public Map<String, Object> applyProposal(@PathVariable String projectId, @PathVariable String proposalId) {
-        return Map.of("path", workflowService.applyProposal(projectId, proposalId).toString());
-    }
-
-    @PostMapping("/projects/{projectId}/generate")
-    public PlatformTypes.GenerationRun generate(@PathVariable String projectId) {
-        return workflowService.generate(projectId);
-    }
-
-    @PostMapping("/projects/{projectId}/drift")
-    public PlatformTypes.DriftReport drift(@PathVariable String projectId) {
-        return workflowService.drift(projectId);
-    }
-
-    @GetMapping("/projects/{projectId}/contracts/diff")
-    public PlatformTypes.ContractDiff contractDiff(@PathVariable String projectId) {
-        return workflowService.contractDiff(projectId);
-    }
-
-    @GetMapping("/projects/{projectId}/graph/diff")
-    public Map<String, String> graphDiff(@PathVariable String projectId, @RequestParam String from, @RequestParam String to) {
-        return Map.of("query", workflowService.graphDiffQuery(from, to), "projectId", projectId);
+    @GetMapping("/projects/{projectId}/evidence")
+    public Object evidence(@PathVariable String projectId) {
+        return workflowService.currentExtraction(projectId).evidenceSnapshot();
     }
 
     @GetMapping("/projects/{projectId}/graph/lineage")
@@ -248,7 +159,8 @@ public class WorkbenchController {
     @GetMapping(path = "/runs/{runId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamRun(@PathVariable String runId) {
         SseEmitter emitter = new SseEmitter(30_000L);
-        Executors.newSingleThreadExecutor().submit(() -> {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        executor.submit(() -> {
             try {
                 while (true) {
                     RunEntity entity = runService.get(runId);
@@ -261,6 +173,8 @@ public class WorkbenchController {
                 }
             } catch (IOException | InterruptedException exception) {
                 emitter.completeWithError(exception);
+            } finally {
+                executor.shutdown();
             }
         });
         return emitter;
@@ -270,6 +184,7 @@ public class WorkbenchController {
         return new RunSummary(
                 entity.getId(),
                 entity.getProjectId(),
+                entity.getParentRunId(),
                 entity.getKind(),
                 entity.getStatus(),
                 entity.getStartedAt(),
@@ -285,19 +200,10 @@ public class WorkbenchController {
     ) {
     }
 
-    public record ProposalRequest(@NotBlank String instruction) {
-    }
-
-    public record SaveSpecRequest(
-            @NotBlank String stage,
-            @NotBlank String content
-    ) {
-    }
-
-    public record StoryProposalRequest(
-            @NotBlank String title,
-            @NotBlank String story,
-            @NotBlank String acceptanceCriteria
+    public record BootstrapResponse(
+            PlatformTypes.WorkspaceRef workspace,
+            String bootstrapRunId,
+            String status
     ) {
     }
 
@@ -307,6 +213,7 @@ public class WorkbenchController {
     public record RunSummary(
             String id,
             String projectId,
+            String parentRunId,
             String kind,
             String status,
             Instant startedAt,

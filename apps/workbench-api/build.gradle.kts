@@ -4,12 +4,11 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":tools:compiler-core"))
-    implementation(project(":tools:compiler-dsl"))
-    implementation(project(":tools:compiler-ir"))
-    implementation(project(":tools:extractor-javaparser"))
-    implementation(project(":tools:extractor-spoon"))
+    implementation(project(":tools:codebase-extractor"))
+    implementation(project(":tools:codebase-model"))
     implementation(project(":tools:graph-neo4j"))
+    implementation(project(":tools:spec-compiler"))
+    implementation(project(":tools:spec-model"))
 
     implementation(libs.spring.boot.starter.web)
     implementation(libs.spring.boot.starter.data.jpa)
@@ -20,6 +19,7 @@ dependencies {
     implementation(libs.springdoc.openapi.starter.webmvc)
     implementation(libs.jackson.databind)
     implementation(libs.jackson.yaml)
+    implementation(libs.jackson.jsr310)
 
     runtimeOnly(libs.postgresql)
     runtimeOnly(libs.h2)

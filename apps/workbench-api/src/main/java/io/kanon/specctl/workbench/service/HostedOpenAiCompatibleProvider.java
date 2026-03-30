@@ -3,13 +3,13 @@ package io.kanon.specctl.workbench.service;
 import io.kanon.specctl.core.ai.LlmProvider;
 import io.kanon.specctl.core.ai.ProposalRequest;
 import io.kanon.specctl.workbench.config.WorkbenchProperties;
+import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
-
-import java.util.List;
-import java.util.Map;
 
 @Component
 public class HostedOpenAiCompatibleProvider implements LlmProvider {
@@ -18,7 +18,11 @@ public class HostedOpenAiCompatibleProvider implements LlmProvider {
 
     public HostedOpenAiCompatibleProvider(WorkbenchProperties properties, WebClient.Builder webClientBuilder) {
         this.properties = properties;
-        this.webClient = webClientBuilder.build();
+        this.webClient = webClientBuilder
+                .exchangeStrategies(ExchangeStrategies.builder()
+                        .codecs(c -> c.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
+                        .build())
+                .build();
     }
 
     @Override
@@ -40,7 +44,9 @@ public class HostedOpenAiCompatibleProvider implements LlmProvider {
                 "model", defaultModel(),
                 "messages", List.of(
                         Map.of("role", "system", "content", "Respond with JSON only matching the requested schema."),
-                        Map.of("role", "user", "content", request.instruction() + "\nSchema: " + request.targetSchema() + "\nEvidence:\n" + String.join("\n", request.evidenceChunks()))
+                        Map.of("role", "user", "content",
+                                request.instruction() + "\nSchema: " + request.targetSchema() + "\nEvidence:\n" +
+                                        String.join("\n", request.evidenceChunks()))
                 ),
                 "temperature", 0.0,
                 "response_format", Map.of("type", "json_object")
@@ -69,8 +75,10 @@ public class HostedOpenAiCompatibleProvider implements LlmProvider {
         Map<String, Object> payload = Map.of(
                 "model", defaultModel(),
                 "messages", List.of(
-                        Map.of("role", "system", "content", "You are a domain expert on this service spec. Answer questions using only the provided spec context. Be concise and precise."),
-                        Map.of("role", "user", "content", "Context:\n" + context + "\n\nQuestion: " + request.instruction())
+                        Map.of("role", "system", "content",
+                                "You are a domain expert on this service spec. Answer questions using only the provided spec context. Be concise and precise."),
+                        Map.of("role", "user", "content",
+                                "Context:\n" + context + "\n\nQuestion: " + request.instruction())
                 ),
                 "temperature", 0.2
         );

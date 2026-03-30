@@ -1,347 +1,348 @@
-import { DiffEditor, Editor } from "@monaco-editor/react";
-import type { ValidationReport } from "../../../types";
-import { SPEC_STAGE_LABELS, type BddAggregate, type ProposalView, type SpecStageKey, type StoryFormState } from "../types";
-import { BddScenariosViewer } from "./BddScenariosViewer";
-import { EmptyState, Panel, SectionHeader, StatusBadge } from "./primitives";
+import {DiffEditor, Editor} from "@monaco-editor/react";
+import type {BootstrapRunMetadata, RunSummary, SpecFile} from "../../../types";
+import {
+    type BddAggregate,
+    SPEC_STAGE_LABELS,
+    type SpecStageKey
+} from "../types";
+import {
+    formatDate,
+    humanizeRunKind,
+    parseSynthesisRunMetadata,
+    summarizeBootstrapProgress,
+    summarizeBootstrapRun,
+    toneForRunStatus
+} from "../utils";
+import {BddScenariosViewer} from "./BddScenariosViewer";
+import {EmptyState, InfoListRow, KeyValueList, Panel, ProgressMeter, SectionHeader, StatusBadge} from "./primitives";
 
 export function SpecStage({
-  specStage,
-  onSelectSpecStage,
-  editorValue,
-  onEditorChange,
-  editorDirty,
-  onSave,
-  savePending,
-  onValidate,
-  validatePending,
-  validationReport,
-  proposalInstruction,
-  onProposalInstructionChange,
-  onCreateSpecProposal,
-  specProposalPending,
-  storyForm,
-  onStoryFieldChange,
-  onCreateStoryProposal,
-  storyProposalPending,
-  proposals,
-  selectedProposalId,
-  onSelectProposal,
-  selectedProposal,
-  approvedSpecContent,
-  proposalPatch,
-  onApplyProposal,
-  applyProposalPending,
-  bddAggregates
-}: {
-  specStage: SpecStageKey;
-  onSelectSpecStage: (stage: SpecStageKey) => void;
-  editorValue: string;
-  onEditorChange: (value: string) => void;
-  editorDirty: boolean;
-  onSave: () => void;
-  savePending: boolean;
-  onValidate: () => void;
-  validatePending: boolean;
-  validationReport: ValidationReport | null;
-  proposalInstruction: string;
-  onProposalInstructionChange: (value: string) => void;
-  onCreateSpecProposal: () => void;
-  specProposalPending: boolean;
-  storyForm: StoryFormState;
-  onStoryFieldChange: (field: keyof StoryFormState, value: string) => void;
-  onCreateStoryProposal: () => void;
-  storyProposalPending: boolean;
-  proposals: ProposalView[];
-  selectedProposalId: string;
-  onSelectProposal: (proposalId: string) => void;
-  selectedProposal: ProposalView | null;
-  approvedSpecContent: string;
-  proposalPatch: string;
-  onApplyProposal: (proposalId: string) => void;
-  applyProposalPending: boolean;
-  bddAggregates: BddAggregate[];
+                              specStage,
+                              onSelectSpecStage,
+                              currentSpec,
+                              currentSpecLoading,
+                              approvedSpecContent,
+                              draftSpecContent,
+                              latestBootstrapRun,
+                              latestSynthesisRun,
+                              bootstrapMetadata,
+                              onRefreshKnowledge,
+                              refreshPending,
+                              bddAggregates
+                          }: {
+    specStage: SpecStageKey;
+    onSelectSpecStage: (stage: SpecStageKey) => void;
+    currentSpec?: SpecFile;
+    currentSpecLoading: boolean;
+    approvedSpecContent: string;
+    draftSpecContent: string;
+    latestBootstrapRun: RunSummary | null;
+    latestSynthesisRun: RunSummary | null;
+    bootstrapMetadata: BootstrapRunMetadata | null;
+    onRefreshKnowledge: () => void;
+    refreshPending: boolean;
+    bddAggregates: BddAggregate[];
 }) {
-  const diffTitle = selectedProposal ? "Approved spec vs selected proposal" : "Approved spec vs draft";
-  const diffBadgeTone = selectedProposal?.kind === "STORY" ? "info" : "warning";
+    const diffAvailable = Boolean(approvedSpecContent || draftSpecContent);
+    const diffChanged = approvedSpecContent !== draftSpecContent;
+    const currentExists = currentSpec?.exists ?? false;
+    const currentContent = currentSpec?.content ?? "";
+    const bootstrapTone = latestBootstrapRun ? toneForRunStatus(latestBootstrapRun.status) : "neutral";
+    const bootstrapProgress = summarizeBootstrapProgress(latestBootstrapRun);
+    const stages = bootstrapMetadata?.stages ?? [];
+    const runningStage = stages.find((stage) => stage.status === "RUNNING") ?? null;
+    const failedStage = stages.find((stage) => stage.status === "FAILED") ?? null;
+    const synthesisMetadata = parseSynthesisRunMetadata(latestSynthesisRun?.metadataJson);
+    const emptySpecTitle = latestBootstrapRun?.status === "FAILED"
+        ? "Semantic derivation failed"
+        : runningStage?.kind === "SYNTHESIS"
+            ? "Semantic synthesis in progress"
+            : runningStage?.kind === "APPROVE"
+                ? "Approval in progress"
+                : "Semantic spec not available";
+    const emptySpecDetail = latestBootstrapRun?.status === "FAILED"
+        ? failedStage?.detail || latestBootstrapRun.logText || "The latest semantic derivation failed before writing the spec artifact."
+        : runningStage?.kind === "SYNTHESIS"
+            ? "The draft and approved spec files stay empty until synthesis finishes and the derived document validates."
+            : runningStage?.kind === "APPROVE"
+                ? "The semantic draft exists conceptually, but the approved file is only written after validation and approval complete."
+                : "Refresh knowledge to derive the selected semantic spec artifact.";
+    const emptyDiffTitle = latestBootstrapRun?.status === "FAILED"
+        ? "No semantic spec diff available"
+        : runningStage
+            ? "Semantic diff pending"
+            : "No semantic spec diff available";
+    const emptyDiffDetail = latestBootstrapRun?.status === "FAILED"
+        ? failedStage?.detail || latestBootstrapRun.logText || "The latest bootstrap failed before draft and approved specs were produced."
+        : runningStage
+            ? "Draft and approved specs will appear here after synthesis, validation, and approval complete."
+            : "Draft and approved semantic specs will appear here after a successful refresh.";
+    const stageBadgeTone = currentExists ? "positive" : runningStage ? "info" : "neutral";
+    const stageBadgeLabel = currentExists
+        ? SPEC_STAGE_LABELS[specStage]
+        : runningStage
+            ? `${humanizeRunKind(runningStage.kind)} in progress`
+            : "not derived";
+    const aiTone = latestSynthesisRun?.status === "FAILED"
+        ? "danger"
+        : synthesisMetadata?.aiApplied
+            ? "positive"
+            : synthesisMetadata?.aiFallbackUsed
+                ? "warning"
+                : synthesisMetadata?.aiAttempted
+                    ? "info"
+                    : "neutral";
+    const aiStatus = !latestSynthesisRun
+        ? "unknown"
+        : latestSynthesisRun.status === "RUNNING"
+            ? "in progress"
+            : latestSynthesisRun.status === "FAILED"
+                ? "failed"
+                : synthesisMetadata?.aiApplied
+                    ? "applied"
+                    : synthesisMetadata?.aiFallbackUsed
+                        ? "fallback"
+                        : synthesisMetadata?.aiAttempted
+                            ? "attempted"
+                            : "not attempted";
+    const aiProviderModel = synthesisMetadata?.aiProvider
+        ? synthesisMetadata.aiModel
+            ? `${synthesisMetadata.aiProvider} / ${synthesisMetadata.aiModel}`
+            : synthesisMetadata.aiProvider
+        : "n/a";
+    const aiReason = synthesisMetadata?.aiFallbackReason?.trim()
+        || (latestSynthesisRun?.status === "FAILED" ? latestSynthesisRun.logText?.trim() : "")
+        || "";
+    const aiDetail = latestSynthesisRun?.status === "RUNNING"
+        ? "AI refinement status will appear after synthesis completes."
+        : latestSynthesisRun?.status === "FAILED"
+            ? aiReason || "The synthesis run failed before a refined draft was produced."
+            : synthesisMetadata?.aiApplied
+                ? "AI-refined semantic output passed validation and was kept."
+                : synthesisMetadata?.aiFallbackUsed
+                    ? aiReason || "AI refinement did not survive validation, so the deterministic draft was kept."
+                    : synthesisMetadata?.aiAttempted
+                        ? "AI refinement was attempted but did not materially change the final approved draft."
+                        : latestSynthesisRun
+                            ? "No AI refinement was attempted. The deterministic draft became the final spec."
+                            : "The latest synthesis run records whether AI was attempted and whether fallback was used.";
 
-  return (
-    <div className="stage-grid">
-      <div className="stage-main">
-        <Panel>
-          <SectionHeader
-            eyebrow="Spec"
-            title="Working spec editor"
-            description="Edit the active YAML stage, validate it, and keep the working state explicit."
-            badge={
-              <StatusBadge tone={editorDirty ? "warning" : "positive"}>
-                {editorDirty ? "unsaved" : SPEC_STAGE_LABELS[specStage]}
-              </StatusBadge>
-            }
-            actions={
-              <div className="toolbar-row">
-                {(["current", "approved", "draft"] as const).map((stage) => (
-                  <button
-                    key={stage}
-                    type="button"
-                    className={`stage-chip ${specStage === stage ? "active" : ""}`}
-                    onClick={() => onSelectSpecStage(stage)}
-                  >
-                    {SPEC_STAGE_LABELS[stage]}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={onValidate}
-                  disabled={validatePending}
-                >
-                  {validatePending ? "Validating..." : "Validate"}
-                </button>
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={onSave}
-                  disabled={savePending || !editorDirty}
-                >
-                  {savePending ? "Saving..." : "Save"}
-                </button>
-              </div>
-            }
-          />
+    return (
+        <div className="stage-grid">
+            <div className="stage-main">
+                <Panel>
+                    <SectionHeader
+                        eyebrow="Semantic Spec"
+                        title="Derived semantic spec"
+                        description="Inspect the read-only semantic YAML derived from deterministic evidence and AI synthesis."
+                        badge={
+                            <StatusBadge tone={stageBadgeTone}>
+                                {stageBadgeLabel}
+                            </StatusBadge>
+                        }
+                        actions={
+                            <div className="toolbar-row">
+                                {(["current", "approved", "draft"] as const).map((stage) => (
+                                    <button
+                                        key={stage}
+                                        type="button"
+                                        className={`stage-chip ${specStage === stage ? "active" : ""}`}
+                                        onClick={() => onSelectSpecStage(stage)}
+                                    >
+                                        {SPEC_STAGE_LABELS[stage]}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    className="primary-button"
+                                    onClick={onRefreshKnowledge}
+                                    disabled={refreshPending}
+                                >
+                                    {refreshPending ? "Refreshing..." : "Refresh knowledge"}
+                                </button>
+                            </div>
+                        }
+                    />
 
-          <div className="editor-shell">
-            <Editor
-              height="520px"
-              defaultLanguage="yaml"
-              language="yaml"
-              theme="vs-dark"
-              value={editorValue}
-              onChange={(value) => onEditorChange(value ?? "")}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                wordWrap: "on",
-                automaticLayout: true
-              }}
-            />
-          </div>
-        </Panel>
+                    {currentSpecLoading ? (
+                        <EmptyState
+                            title="Loading semantic spec"
+                            detail="Reading the currently selected semantic spec artifact."
+                        />
+                    ) : currentExists ? (
+                        <div className="editor-shell">
+                            <Editor
+                                height="520px"
+                                defaultLanguage="yaml"
+                                language="yaml"
+                                theme="vs-dark"
+                                value={currentContent}
+                                options={{
+                                    readOnly: true,
+                                    minimap: {enabled: false},
+                                    fontSize: 13,
+                                    wordWrap: "on",
+                                    automaticLayout: true
+                                }}
+                            />
+                        </div>
+                    ) : (
+                        <EmptyState
+                            title={emptySpecTitle}
+                            detail={emptySpecDetail}
+                        />
+                    )}
+                </Panel>
 
-        <Panel>
-          <SectionHeader
-            eyebrow="Diff review"
-            title={diffTitle}
-            description="Compare the approved baseline against the current draft or a selected proposal before apply."
-            badge={
-              <StatusBadge tone={selectedProposal ? diffBadgeTone : "neutral"}>
-                {selectedProposal ? selectedProposal.kind : "Draft"}
-              </StatusBadge>
-            }
-            actions={
-              selectedProposal && selectedProposal.status !== "APPLIED" ? (
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={() => onApplyProposal(selectedProposal.id)}
-                  disabled={applyProposalPending}
-                >
-                  {applyProposalPending ? "Applying..." : "Apply selected proposal"}
-                </button>
-              ) : undefined
-            }
-          />
+                <Panel>
+                    <SectionHeader
+                        eyebrow="Diff"
+                        title="Approved vs draft"
+                        description="Compare the approved semantic baseline against the latest draft produced by the refresh pipeline."
+                        badge={
+                            <StatusBadge tone={!diffAvailable ? "neutral" : diffChanged ? "warning" : "positive"}>
+                                {!diffAvailable ? "empty" : diffChanged ? "changed" : "in sync"}
+                            </StatusBadge>
+                        }
+                    />
 
-          <div className="diff-shell">
-            <DiffEditor
-              height="360px"
-              theme="vs-dark"
-              original={approvedSpecContent}
-              modified={proposalPatch}
-              language="yaml"
-              options={{
-                renderSideBySide: true,
-                minimap: { enabled: false },
-                fontSize: 13,
-                wordWrap: "on",
-                automaticLayout: true
-              }}
-            />
-          </div>
-
-          {selectedProposal ? (
-            <div className="panel-stack">
-              <div className="subtle-block">
-                <div className="subtle-block-head">
-                  <strong>{selectedProposal.title}</strong>
-                  <StatusBadge tone={selectedProposal.status === "APPLIED" ? "positive" : "info"}>
-                    {selectedProposal.status.toLowerCase()}
-                  </StatusBadge>
-                </div>
-                <p>{selectedProposal.summary}</p>
-              </div>
-
-              <div className="checklist-list">
-                {selectedProposal.checklist.map((item, index) => (
-                  <div key={`${selectedProposal.id}-${index}`} className="checklist-row">
-                    <span>{item}</span>
-                  </div>
-                ))}
-                {!selectedProposal.checklist.length && (
-                  <p className="inline-empty">No checklist items were included with this proposal.</p>
-                )}
-              </div>
+                    {diffAvailable ? (
+                        <div className="diff-shell">
+                            <DiffEditor
+                                height="360px"
+                                theme="vs-dark"
+                                original={approvedSpecContent}
+                                modified={draftSpecContent}
+                                language="yaml"
+                                options={{
+                                    renderSideBySide: true,
+                                    minimap: {enabled: false},
+                                    fontSize: 13,
+                                    wordWrap: "on",
+                                    automaticLayout: true,
+                                    readOnly: true
+                                }}
+                            />
+                        </div>
+                    ) : (
+                        <EmptyState
+                            title={emptyDiffTitle}
+                            detail={emptyDiffDetail}
+                        />
+                    )}
+                </Panel>
             </div>
-          ) : (
-            <EmptyState
-              title="No proposal selected"
-              detail="The diff currently compares the approved baseline against the latest draft spec."
-            />
-          )}
-        </Panel>
-      </div>
 
-      <div className="stage-side">
-        <BddScenariosViewer aggregates={bddAggregates} />
+            <div className="stage-side">
+                <BddScenariosViewer aggregates={bddAggregates}/>
 
-        <Panel>
-          <SectionHeader
-            eyebrow="Validation"
-            title="Spec diagnostics"
-            badge={
-              <StatusBadge tone={!validationReport ? "neutral" : validationReport.valid ? "positive" : "danger"}>
-                {!validationReport ? "not run" : validationReport.valid ? "valid" : "issues"}
-              </StatusBadge>
-            }
-          />
+                <Panel>
+                    <SectionHeader
+                        eyebrow="Lifecycle"
+                        title="Derived artifact posture"
+                        badge={
+                            <StatusBadge tone={bootstrapTone}>
+                                {latestBootstrapRun ? summarizeBootstrapRun(latestBootstrapRun) : "idle"}
+                            </StatusBadge>
+                        }
+                    />
 
-          {validationReport?.issues.length ? (
-            <div className="issue-list">
-              {validationReport.issues.map((issue, index) => (
-                <div key={`${issue.code}-${index}`} className={`issue-row ${issue.level === "ERROR" ? "error" : "warn"}`}>
-                  <div className="issue-head">
-                    <strong>{issue.code}</strong>
-                    <span>{issue.path}</span>
-                  </div>
-                  <p>{issue.message}</p>
-                </div>
-              ))}
+                    <KeyValueList
+                        items={[
+                            {label: "Current stage", value: SPEC_STAGE_LABELS[specStage]},
+                            {label: "Current available", value: currentExists ? "yes" : "no"},
+                            {label: "Approved available", value: approvedSpecContent ? "yes" : "no"},
+                            {label: "Draft available", value: draftSpecContent ? "yes" : "no"},
+                            {
+                                label: "Latest bootstrap",
+                                value: latestBootstrapRun
+                                    ? `${latestBootstrapRun.status.toLowerCase()} at ${formatDate(latestBootstrapRun.startedAt)}`
+                                    : "not run"
+                            }
+                        ]}
+                    />
+
+                    <div className="panel-stack progress-panel-copy">
+                        <ProgressMeter
+                            value={bootstrapProgress.progressValue}
+                            max={bootstrapProgress.progressMax}
+                            tone={bootstrapProgress.tone}
+                            animated={bootstrapProgress.animated}
+                            label={bootstrapProgress.headline}
+                        />
+                        <p className="inline-empty">{bootstrapProgress.detail}</p>
+                    </div>
+
+                    <div className="info-list" style={{marginTop: "1rem"}}>
+                        <InfoListRow
+                            title="AI refinement"
+                            subtitle={aiDetail}
+                            tone={aiTone}
+                            trailing={<StatusBadge tone={aiTone}>{aiStatus}</StatusBadge>}
+                        />
+                    </div>
+
+                    <KeyValueList
+                        className="key-value-list compact"
+                        items={[
+                            {label: "Latest synthesis", value: latestSynthesisRun ? latestSynthesisRun.status.toLowerCase() : "not run"},
+                            {label: "AI provider", value: aiProviderModel},
+                            {label: "AI attempted", value: synthesisMetadata?.aiAttempted ? "yes" : "no"},
+                            {label: "AI applied", value: synthesisMetadata?.aiApplied ? "yes" : "no"},
+                            {label: "Fallback used", value: synthesisMetadata?.aiFallbackUsed ? "yes" : "no"}
+                        ]}
+                    />
+
+                    {stages.length ? (
+                        <div className="info-list" style={{marginTop: "1rem"}}>
+                            {stages.map((stage) => (
+                                <InfoListRow
+                                    key={stage.kind}
+                                    title={humanizeRunKind(stage.kind)}
+                                    subtitle={stage.detail || stage.status.toLowerCase()}
+                                    tone={
+                                        stage.status === "FAILED"
+                                            ? "danger"
+                                            : stage.status === "RUNNING"
+                                                ? "info"
+                                                : stage.status === "SUCCEEDED"
+                                                    ? "positive"
+                                                    : "neutral"
+                                    }
+                                    trailing={
+                                        <StatusBadge
+                                            tone={
+                                                stage.status === "FAILED"
+                                                    ? "danger"
+                                                    : stage.status === "RUNNING"
+                                                        ? "info"
+                                                        : stage.status === "SUCCEEDED"
+                                                            ? "positive"
+                                                            : "neutral"
+                                            }
+                                        >
+                                            {stage.status.toLowerCase()}
+                                        </StatusBadge>
+                                    }
+                                />
+                            ))}
+                        </div>
+                    ) : null}
+                </Panel>
+
+                <Panel>
+                    <SectionHeader eyebrow="Policy" title="Read-only derived model"/>
+                    <div className="panel-stack">
+                        <p className="inline-empty">
+                            Semantic specs are derived artifacts. They are refreshed from evidence, optionally refined by AI,
+                            validated, and then promoted to approved automatically.
+                        </p>
+                        <p className="inline-empty">
+                            Manual editing, proposals, and authoring flows are intentionally disabled in this workbench mode.
+                        </p>
+                    </div>
+                </Panel>
             </div>
-          ) : (
-            <EmptyState
-              title={validationReport?.valid ? "Spec is valid" : "Validation not run"}
-              detail={
-                validationReport?.valid
-                  ? "The last validation pass reported no blocking issues for the active editor content."
-                  : "Run validation after editing to capture structural or semantic issues."
-              }
-            />
-          )}
-        </Panel>
-
-        <Panel>
-          <SectionHeader
-            eyebrow="Proposals"
-            title="Proposal queue"
-            badge={<StatusBadge tone={proposals.length ? "info" : "neutral"}>{proposals.length}</StatusBadge>}
-          />
-
-          <div className="form-section">
-            <h3>Create spec proposal</h3>
-            <label className="form-field">
-              <span>Instruction</span>
-              <textarea
-                className="text-area"
-                rows={4}
-                value={proposalInstruction}
-                onChange={(event) => onProposalInstructionChange(event.target.value)}
-                placeholder="Add approval workflow, pagination limits, or a new aggregate."
-              />
-            </label>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={onCreateSpecProposal}
-              disabled={specProposalPending || !proposalInstruction.trim()}
-            >
-              {specProposalPending ? "Drafting..." : "Create spec proposal"}
-            </button>
-          </div>
-
-          <div className="form-section">
-            <h3>Plan story</h3>
-            <label className="form-field">
-              <span>Story title</span>
-              <input
-                className="text-input"
-                value={storyForm.title}
-                onChange={(event) => onStoryFieldChange("title", event.target.value)}
-              />
-            </label>
-            <label className="form-field">
-              <span>User story</span>
-              <textarea
-                className="text-area"
-                rows={3}
-                value={storyForm.story}
-                onChange={(event) => onStoryFieldChange("story", event.target.value)}
-              />
-            </label>
-            <label className="form-field">
-              <span>Acceptance criteria</span>
-              <textarea
-                className="text-area"
-                rows={4}
-                value={storyForm.acceptanceCriteria}
-                onChange={(event) => onStoryFieldChange("acceptanceCriteria", event.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={onCreateStoryProposal}
-              disabled={
-                storyProposalPending ||
-                !storyForm.title.trim() ||
-                !storyForm.story.trim() ||
-                !storyForm.acceptanceCriteria.trim()
-              }
-            >
-              {storyProposalPending ? "Planning..." : "Create story proposal"}
-            </button>
-          </div>
-
-          <div className="proposal-list">
-            {proposals.map((proposal) => (
-              <button
-                key={proposal.id}
-                type="button"
-                className={`proposal-item ${selectedProposalId === proposal.id ? "active" : ""}`}
-                onClick={() => onSelectProposal(proposal.id)}
-              >
-                <div className="proposal-item-head">
-                  <strong>{proposal.title}</strong>
-                  <StatusBadge tone={proposal.kind === "STORY" ? "info" : "warning"}>
-                    {proposal.kind}
-                  </StatusBadge>
-                </div>
-                <p>{proposal.summary}</p>
-                <div className="proposal-item-meta">
-                  <span>{`${proposal.auditProvider} / ${proposal.auditModel}`}</span>
-                  <StatusBadge tone={proposal.status === "APPLIED" ? "positive" : "neutral"}>
-                    {proposal.status.toLowerCase()}
-                  </StatusBadge>
-                </div>
-              </button>
-            ))}
-            {!proposals.length && (
-              <EmptyState
-                title="Proposal queue empty"
-                detail="Create a spec patch or a story-backed proposal to open a structured review flow."
-              />
-            )}
-          </div>
-        </Panel>
-      </div>
-    </div>
-  );
+        </div>
+    );
 }

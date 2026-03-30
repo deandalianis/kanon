@@ -1,6 +1,8 @@
 # Gradle / JVM
 .gradle/
 **/build/
+!tools/codebase-extractor/src/main/java/io/kanon/specctl/build/
+!tools/codebase-extractor/src/main/java/io/kanon/specctl/build/**
 **/out/
 *.class
 

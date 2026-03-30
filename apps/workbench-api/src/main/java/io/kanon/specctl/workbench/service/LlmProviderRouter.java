@@ -2,11 +2,10 @@ package io.kanon.specctl.workbench.service;
 
 import io.kanon.specctl.core.ai.LlmProvider;
 import io.kanon.specctl.workbench.config.WorkbenchProperties;
-import org.springframework.stereotype.Service;
-
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.stereotype.Service;
 
 @Service
 public class LlmProviderRouter {

@@ -2,22 +2,22 @@ package io.kanon.specctl.workbench.web;
 
 import io.kanon.specctl.workbench.service.WorkspaceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.Instant;
+import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.http.converter.HttpMessageNotReadableException;
-
-import java.time.Instant;
-import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
     @ExceptionHandler(WorkspaceNotFoundException.class)
-    public ResponseEntity<ApiError> handleWorkspaceNotFound(WorkspaceNotFoundException exception, HttpServletRequest request) {
+    public ResponseEntity<ApiError> handleWorkspaceNotFound(WorkspaceNotFoundException exception,
+                                                            HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new ApiError(
                         Instant.now().toString(),
@@ -29,7 +29,8 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException exception, HttpServletRequest request) {
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException exception,
+                                                          HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError(
                         Instant.now().toString(),
@@ -41,7 +42,8 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception, HttpServletRequest request) {
+    public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception,
+                                                     HttpServletRequest request) {
         String message = exception.getBindingResult().getFieldErrors().stream()
                 .map(this::formatFieldError)
                 .collect(Collectors.joining("; "));
@@ -56,7 +58,8 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException exception, HttpServletRequest request) {
+    public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException exception,
+                                                         HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError(
                         Instant.now().toString(),
@@ -68,8 +71,10 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ApiError> handleDataIntegrity(DataIntegrityViolationException exception, HttpServletRequest request) {
-        String detail = exception.getMostSpecificCause() == null ? "" : exception.getMostSpecificCause().getMessage();
+    public ResponseEntity<ApiError> handleDataIntegrity(DataIntegrityViolationException exception,
+                                                        HttpServletRequest request) {
+        exception.getMostSpecificCause();
+        String detail = exception.getMostSpecificCause().getMessage();
         String message = "Request conflicts with existing workspace state.";
         if (detail.contains("Key (name)=")) {
             message = "Project name is already registered. Choose a different name or reuse the existing workspace.";
@@ -88,7 +93,8 @@ public class ApiExceptionHandler {
     }
 
     private String formatFieldError(FieldError error) {
-        return error.getField() + ": " + (error.getDefaultMessage() == null ? "invalid value" : error.getDefaultMessage());
+        return error.getField() + ": " +
+                (error.getDefaultMessage() == null ? "invalid value" : error.getDefaultMessage());
     }
 
     public record ApiError(

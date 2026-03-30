@@ -3,11 +3,11 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":tools:compiler-core"))
-    implementation(project(":tools:compiler-ir"))
+    implementation(project(":tools:spec-model"))
+    implementation(project(":tools:codebase-model"))
     implementation(libs.neo4j.driver)
 
-    testImplementation(project(":tools:compiler-dsl"))
+    testImplementation(project(":tools:spec-compiler"))
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.assertj.core)

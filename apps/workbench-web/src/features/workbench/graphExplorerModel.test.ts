@@ -1,275 +1,325 @@
-import { describe, expect, it } from "vitest";
-import type { ExtractionConflict, ExtractionProvenance, GraphView } from "../../types";
+import {describe, expect, it} from "vitest";
+import type {ExtractionSnapshot, GraphView} from "../../types";
 import {
-  buildSearchResults,
-  createExplorerIndex,
-  deriveMaterializedArtifacts,
-  deriveNeighborhood,
-  deriveVisibleStructuralIds,
-  expandAncestors
+    buildSearchResults,
+    createExplorerIndex,
+    deriveMaterializedArtifacts,
+    deriveNeighborhood,
+    deriveVisibleStructuralIds,
+    expandAncestors
 } from "./graphExplorerModel";
 
 describe("graphExplorerModel", () => {
-  it("shows the service overview with bounded contexts by default", () => {
-    const index = createExplorerIndex(sampleGraph(), sampleProvenance(), sampleConflicts());
+    it("shows the service overview with top-level semantic nodes by default", () => {
+        const index = createExplorerIndex(sampleGraph(), sampleExtraction());
 
-    expect(deriveVisibleStructuralIds(index, new Set<string>(), { onlyBlockers: false, onlyEvidenceGaps: false }))
-      .toEqual(["svc-orders", "ctx-core", "ctx-ops"]);
-  });
+        expect(deriveVisibleStructuralIds(index, new Set<string>(), {onlyBlockers: false, onlyEvidenceGaps: false}))
+            .toEqual(["svc-orders", "if-http", "ds-orders", "int-payments", "wf-submit"]);
+    });
 
-  it("reveals aggregates and leaves when their parents are expanded", () => {
-    const index = createExplorerIndex(sampleGraph(), sampleProvenance(), sampleConflicts());
+    it("reveals operations when their interface parent is expanded", () => {
+        const index = createExplorerIndex(sampleGraph(), sampleExtraction());
 
-    expect(
-      deriveVisibleStructuralIds(index, new Set(["ctx-core"]), { onlyBlockers: false, onlyEvidenceGaps: false })
-    ).toEqual(["svc-orders", "ctx-core", "agg-order", "ctx-ops"]);
+        expect(
+            deriveVisibleStructuralIds(index, new Set(["if-http"]), {onlyBlockers: false, onlyEvidenceGaps: false})
+        ).toEqual(["svc-orders", "if-http", "op-submit", "ds-orders", "int-payments", "wf-submit"]);
+    });
 
-    expect(
-      deriveVisibleStructuralIds(index, new Set(["ctx-core", "agg-order"]), {
-        onlyBlockers: false,
-        onlyEvidenceGaps: false
-      })
-    ).toEqual(["svc-orders", "ctx-core", "agg-order", "cmd-submit", "ent-order", "evt-submitted", "ctx-ops"]);
-  });
+    it("builds the selected neighborhood from ancestors and direct descendants", () => {
+        const index = createExplorerIndex(sampleGraph(), sampleExtraction());
 
-  it("builds the selected neighborhood from ancestors and direct descendants", () => {
-    const index = createExplorerIndex(sampleGraph(), sampleProvenance(), sampleConflicts());
+        expect([...deriveNeighborhood(index, "if-http")].sort()).toEqual([
+            "if-http",
+            "op-submit",
+            "svc-orders"
+        ]);
+    });
 
-    expect([...deriveNeighborhood(index, "agg-order")].sort()).toEqual([
-      "agg-order",
-      "cmd-submit",
-      "ctx-core",
-      "ent-order",
-      "evt-submitted",
-      "svc-orders"
-    ]);
-  });
+    it("searches labels, paths, and metadata and expands ancestors for the chosen result", () => {
+        const index = createExplorerIndex(sampleGraph(), sampleExtraction());
 
-  it("searches labels, paths, and metadata and expands ancestors for the chosen result", () => {
-    const index = createExplorerIndex(sampleGraph(), sampleProvenance(), sampleConflicts());
+        expect(buildSearchResults(index, "payments")[0]?.id).toBe("int-payments");
+        expect(buildSearchResults(index, "SubmitOrder")[0]?.id).toBe("op-submit");
+        expect([...expandAncestors(index, "op-submit", new Set<string>())]).toEqual(["if-http"]);
+    });
 
-    expect(buildSearchResults(index, "POST")[0]?.id).toBe("cmd-submit");
-    expect(buildSearchResults(index, "orders.submitted")[0]?.id).toBe("evt-submitted");
-    expect([...expandAncestors(index, "cmd-submit", new Set<string>())].sort()).toEqual(["agg-order", "ctx-core"]);
-  });
+    it("filters to blocking nodes and uncovered nodes while preserving ancestor chains", () => {
+        const index = createExplorerIndex(sampleGraph(), sampleExtraction());
 
-  it("filters to blocking nodes and uncovered nodes while preserving ancestor chains", () => {
-    const index = createExplorerIndex(sampleGraph(), sampleProvenance(), sampleConflicts());
+        expect(
+            deriveVisibleStructuralIds(index, new Set<string>(), {onlyBlockers: true, onlyEvidenceGaps: false}).sort()
+        ).toEqual(["svc-orders", "wf-submit"]);
 
-    expect(
-      deriveVisibleStructuralIds(index, new Set<string>(), { onlyBlockers: true, onlyEvidenceGaps: false }).sort()
-    ).toEqual(["agg-order", "ctx-core", "svc-orders"]);
+        expect(
+            deriveVisibleStructuralIds(index, new Set<string>(), {onlyBlockers: false, onlyEvidenceGaps: true}).sort()
+        ).toEqual(["int-payments", "svc-orders"]);
+    });
 
-    expect(
-      deriveVisibleStructuralIds(index, new Set<string>(), { onlyBlockers: false, onlyEvidenceGaps: true }).sort()
-    ).toEqual(["agg-order", "ctx-core", "ctx-ops", "evt-submitted", "svc-orders"]);
-  });
+    it("materializes only the artifacts attached to the selected structural node", () => {
+        const index = createExplorerIndex(sampleGraph(), sampleExtraction());
 
-  it("materializes only the artifacts attached to the selected structural node", () => {
-    const index = createExplorerIndex(sampleGraph(), sampleProvenance(), sampleConflicts());
+        const operationArtifacts = deriveMaterializedArtifacts(
+            index,
+            ["svc-orders", "if-http", "op-submit"],
+            "op-submit",
+            true,
+            true
+        );
+        const workflowArtifacts = deriveMaterializedArtifacts(
+            index,
+            ["svc-orders", "wf-submit"],
+            "wf-submit",
+            true,
+            true
+        );
 
-    const commandArtifacts = deriveMaterializedArtifacts(
-      index,
-      ["svc-orders", "ctx-core", "agg-order", "cmd-submit"],
-      "cmd-submit",
-      true,
-      true
-    );
-    const aggregateArtifacts = deriveMaterializedArtifacts(
-      index,
-      ["svc-orders", "ctx-core", "agg-order"],
-      "agg-order",
-      true,
-      true
-    );
-
-    expect(commandArtifacts.map((artifact) => artifact.kind)).toEqual(["evidence"]);
-    expect(aggregateArtifacts.map((artifact) => artifact.kind)).toEqual(["conflict"]);
-  });
+        expect(operationArtifacts.map((artifact) => artifact.kind)).toEqual(["evidence"]);
+        expect(workflowArtifacts.map((artifact) => artifact.kind)).toEqual(["conflict"]);
+    });
 });
 
 function sampleGraph(): GraphView {
-  return {
-    nodes: [
-      {
-        id: "svc-orders",
-        label: "Orders",
-        type: "service",
-        path: "/services/orders",
-        parentId: null,
-        stats: {
-          evidenceCount: 3,
-          warningConflictCount: 1,
-          blockingConflictCount: 1,
-          boundedContextCount: 2,
-          aggregateCount: 1,
-          commandCount: 1,
-          entityCount: 1,
-          eventCount: 1
-        },
-        metadata: { basePackage: "io.acme.orders" }
-      },
-      {
-        id: "ctx-core",
-        label: "Core",
-        type: "bounded-context",
-        path: "/services/orders/bounded-contexts/core",
-        parentId: "svc-orders",
-        stats: {
-          evidenceCount: 2,
-          warningConflictCount: 1,
-          blockingConflictCount: 1,
-          boundedContextCount: 0,
-          aggregateCount: 1,
-          commandCount: 1,
-          entityCount: 1,
-          eventCount: 1
-        },
-        metadata: {}
-      },
-      {
-        id: "ctx-ops",
-        label: "Ops",
-        type: "bounded-context",
-        path: "/services/orders/bounded-contexts/ops",
-        parentId: "svc-orders",
-        stats: {
-          evidenceCount: 0,
-          warningConflictCount: 0,
-          blockingConflictCount: 0,
-          boundedContextCount: 0,
-          aggregateCount: 0,
-          commandCount: 0,
-          entityCount: 0,
-          eventCount: 0
-        },
-        metadata: {}
-      },
-      {
-        id: "agg-order",
-        label: "Order",
-        type: "aggregate",
-        path: "/services/orders/bounded-contexts/core/aggregates/order",
-        parentId: "ctx-core",
-        stats: {
-          evidenceCount: 2,
-          warningConflictCount: 1,
-          blockingConflictCount: 1,
-          boundedContextCount: 0,
-          aggregateCount: 0,
-          commandCount: 1,
-          entityCount: 1,
-          eventCount: 1
-        },
-        metadata: {}
-      },
-      {
-        id: "cmd-submit",
-        label: "SubmitOrder",
-        type: "command",
-        path: "/services/orders/bounded-contexts/core/aggregates/order/commands/submit-order",
-        parentId: "agg-order",
-        stats: {
-          evidenceCount: 1,
-          warningConflictCount: 0,
-          blockingConflictCount: 0,
-          boundedContextCount: 0,
-          aggregateCount: 0,
-          commandCount: 0,
-          entityCount: 0,
-          eventCount: 0
-        },
-        metadata: { method: "POST", httpPath: "/orders" }
-      },
-      {
-        id: "ent-order",
-        label: "OrderEntity",
-        type: "entity",
-        path: "/services/orders/bounded-contexts/core/aggregates/order/entities/order-entity",
-        parentId: "agg-order",
-        stats: {
-          evidenceCount: 1,
-          warningConflictCount: 0,
-          blockingConflictCount: 0,
-          boundedContextCount: 0,
-          aggregateCount: 0,
-          commandCount: 0,
-          entityCount: 0,
-          eventCount: 0
-        },
-        metadata: { table: "orders", fieldCount: 8 }
-      },
-      {
-        id: "evt-submitted",
-        label: "OrderSubmitted",
-        type: "event",
-        path: "/services/orders/bounded-contexts/core/aggregates/order/events/order-submitted",
-        parentId: "agg-order",
-        stats: {
-          evidenceCount: 0,
-          warningConflictCount: 0,
-          blockingConflictCount: 0,
-          boundedContextCount: 0,
-          aggregateCount: 0,
-          commandCount: 0,
-          entityCount: 0,
-          eventCount: 0
-        },
-        metadata: { topic: "orders.submitted" }
-      }
-    ],
-    edges: [
-      { id: "svc->core", source: "svc-orders", target: "ctx-core", label: "DECLARES" },
-      { id: "svc->ops", source: "svc-orders", target: "ctx-ops", label: "DECLARES" },
-      { id: "core->order", source: "ctx-core", target: "agg-order", label: "DECLARES" },
-      { id: "order->submit", source: "agg-order", target: "cmd-submit", label: "HANDLES" },
-      { id: "order->entity", source: "agg-order", target: "ent-order", label: "PERSISTS" },
-      { id: "order->event", source: "agg-order", target: "evt-submitted", label: "EMITS" }
-    ]
-  };
+    return {
+        nodes: [
+            {
+                id: "svc-orders",
+                label: "Orders Service",
+                type: "service",
+                path: "io.acme.orders",
+                parentId: null,
+                stats: {
+                    evidenceCount: 8,
+                    warningConflictCount: 0,
+                    blockingConflictCount: 1,
+                    boundedContextCount: 1,
+                    aggregateCount: 1,
+                    commandCount: 1,
+                    entityCount: 1,
+                    eventCount: 1
+                },
+                metadata: {summary: "Handles order submission"}
+            },
+            {
+                id: "if-http",
+                label: "HTTP Surface",
+                type: "interface",
+                path: "/orders",
+                parentId: "svc-orders",
+                stats: {
+                    evidenceCount: 2,
+                    warningConflictCount: 0,
+                    blockingConflictCount: 0,
+                    boundedContextCount: 0,
+                    aggregateCount: 0,
+                    commandCount: 1,
+                    entityCount: 0,
+                    eventCount: 0
+                },
+                metadata: {protocol: "http", kind: "inbound"}
+            },
+            {
+                id: "op-submit",
+                label: "SubmitOrder",
+                type: "operation",
+                path: "/orders",
+                parentId: "if-http",
+                stats: {
+                    evidenceCount: 1,
+                    warningConflictCount: 0,
+                    blockingConflictCount: 0,
+                    boundedContextCount: 0,
+                    aggregateCount: 0,
+                    commandCount: 0,
+                    entityCount: 0,
+                    eventCount: 0
+                },
+                metadata: {method: "POST", summary: "Creates a new order"}
+            },
+            {
+                id: "ds-orders",
+                label: "orders-db",
+                type: "datastore",
+                path: "postgresql",
+                parentId: "svc-orders",
+                stats: {
+                    evidenceCount: 1,
+                    warningConflictCount: 0,
+                    blockingConflictCount: 0,
+                    boundedContextCount: 0,
+                    aggregateCount: 0,
+                    commandCount: 0,
+                    entityCount: 0,
+                    eventCount: 0
+                },
+                metadata: {artifacts: "orders, db/changelog/orders.xml"}
+            },
+            {
+                id: "int-payments",
+                label: "Payments Gateway",
+                type: "integration",
+                path: "payments-service",
+                parentId: "svc-orders",
+                stats: {
+                    evidenceCount: 0,
+                    warningConflictCount: 0,
+                    blockingConflictCount: 0,
+                    boundedContextCount: 0,
+                    aggregateCount: 0,
+                    commandCount: 0,
+                    entityCount: 0,
+                    eventCount: 0
+                },
+                metadata: {direction: "outbound", kind: "http-client"}
+            },
+            {
+                id: "wf-submit",
+                label: "Submit order",
+                type: "workflow",
+                path: "Submit order",
+                parentId: "svc-orders",
+                stats: {
+                    evidenceCount: 1,
+                    warningConflictCount: 0,
+                    blockingConflictCount: 1,
+                    boundedContextCount: 0,
+                    aggregateCount: 0,
+                    commandCount: 0,
+                    entityCount: 0,
+                    eventCount: 0
+                },
+                metadata: {summary: "Accept order and persist it"}
+            }
+        ],
+        edges: [
+            {id: "svc-if", source: "svc-orders", target: "if-http", label: "DECLARES"},
+            {id: "if-op", source: "if-http", target: "op-submit", label: "DECLARES"},
+            {id: "svc-ds", source: "svc-orders", target: "ds-orders", label: "USES"},
+            {id: "svc-int", source: "svc-orders", target: "int-payments", label: "INTEGRATES_WITH"},
+            {id: "svc-wf", source: "svc-orders", target: "wf-submit", label: "RUNS"}
+        ]
+    };
 }
 
-function sampleProvenance(): ExtractionProvenance[] {
-  return [
-    {
-      path: "/services/orders/bounded-contexts/core/aggregates/order/commands/submit-order",
-      file: "OrderController.java",
-      symbol: "submitOrder",
-      startLine: 18,
-      endLine: 22
-    },
-    {
-      path: "/services/orders/bounded-contexts/core/aggregates/order/entities/order-entity/fields/id",
-      file: "OrderEntity.java",
-      symbol: "id",
-      startLine: 5,
-      endLine: 5
-    },
-    {
-      path: "src/main/java/io/acme/orders/Helper.java",
-      file: "Helper.java",
-      symbol: "Helper",
-      startLine: 1,
-      endLine: 4
-    }
-  ];
+function sampleExtraction(): ExtractionSnapshot {
+    return {
+        manifest: {
+            buildResolutionPath: "build-resolution.json",
+            sourceEvidencePath: "source-evidence.json",
+            bytecodeEvidencePath: "bytecode-evidence.json",
+            runtimeEvidencePath: "runtime-evidence.json",
+            mergedEvidencePath: "merged-evidence.json",
+            codebaseIrPath: "codebase-ir.json",
+            confidenceReportPath: "confidence-report.json"
+        },
+        buildResolution: {
+            buildTool: "gradle",
+            projectRoot: "/tmp/orders",
+            buildFile: "build.gradle.kts",
+            rootModule: ":orders",
+            buildCommand: ["./gradlew", "classes"],
+            modules: [],
+            sourceRoots: [],
+            generatedSourceRoots: [],
+            compileClasspath: [],
+            runtimeClasspath: [],
+            classOutputDirectories: [],
+            resourceOutputDirectories: [],
+            javaRelease: "21",
+            mainClass: "io.acme.orders.Application",
+            capabilities: {
+                plainJava: false,
+                spring: true,
+                springBoot: true,
+                springWebMvc: true,
+                springWebFlux: false,
+                jpa: true,
+                beanValidation: true,
+                springSecurity: false
+            },
+            buildSucceeded: true,
+            diagnostics: []
+        },
+        sourceEvidence: emptyEvidenceBundle(),
+        bytecodeEvidence: emptyEvidenceBundle(),
+        runtimeEvidence: {...emptyEvidenceBundle(), bootSucceeded: false},
+        mergedEvidence: emptyEvidenceBundle(),
+        codebaseIr: {
+            ...emptyEvidenceBundle(),
+            schemaVersion: 1,
+            specVersion: "0.1.0",
+            projectRoot: "/tmp/orders",
+            mainClass: "io.acme.orders.Application",
+            capabilities: {
+                plainJava: false,
+                spring: true,
+                springBoot: true,
+                springWebMvc: true,
+                springWebFlux: false,
+                jpa: true,
+                beanValidation: true,
+                springSecurity: false
+            }
+        },
+        confidenceReport: {
+            trusted: true,
+            domains: {}
+        },
+        evidenceSnapshot: {
+            schemaVersion: 1,
+            projectRoot: "/tmp/orders",
+            buildFile: "build.gradle.kts",
+            javaRelease: "21",
+            nodes: [
+                {
+                    id: "ev-endpoint",
+                    kind: "http-endpoint",
+                    label: "POST /orders",
+                    path: "/orders",
+                    attributes: {}
+                },
+                {
+                    id: "ev-workflow",
+                    kind: "documentation-section",
+                    label: "Submit order flow",
+                    path: "Submit order",
+                    attributes: {}
+                }
+            ],
+            edges: [],
+            refs: [
+                {
+                    ownerId: "op-submit",
+                    evidenceNodeId: "ev-endpoint",
+                    file: "OrderController.java",
+                    startLine: 18,
+                    endLine: 28,
+                    excerpt: "submit order"
+                }
+            ],
+            adapters: [],
+            conflicts: [
+                {
+                    id: "conflict-1",
+                    severity: "blocking",
+                    summary: "Workflow approval is incomplete",
+                    evidenceNodeIds: ["ev-workflow"]
+                }
+            ],
+            confidence: []
+        }
+    };
 }
 
-function sampleConflicts(): ExtractionConflict[] {
-  return [
-    {
-      path: "/services/orders/bounded-contexts/core/aggregates/order",
-      preferredSource: "approved",
-      alternateSource: "alternate",
-      message: "Aggregate mismatch",
-      fatal: true
-    },
-    {
-      path: "src/main/java/io/acme/orders/Helper.java",
-      preferredSource: "approved",
-      alternateSource: "alternate",
-      message: "Helper drift",
-      fatal: false
-    }
-  ];
+function emptyEvidenceBundle() {
+    return {
+        types: [],
+        endpoints: [],
+        beans: [],
+        jpaEntities: [],
+        validations: [],
+        securities: [],
+        conflicts: [],
+        provenance: [],
+        diagnostics: []
+    };
 }

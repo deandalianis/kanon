@@ -6,7 +6,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-
 import java.time.Instant;
 
 @Entity
@@ -18,6 +17,8 @@ public class RunEntity {
 
     @Column(nullable = false)
     private String projectId;
+
+    private String parentRunId;
 
     @Column(nullable = false)
     private String kind;
@@ -52,6 +53,14 @@ public class RunEntity {
 
     public void setProjectId(String projectId) {
         this.projectId = projectId;
+    }
+
+    public String getParentRunId() {
+        return parentRunId;
+    }
+
+    public void setParentRunId(String parentRunId) {
+        this.parentRunId = parentRunId;
     }
 
     public String getKind() {

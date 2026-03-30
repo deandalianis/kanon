@@ -6,7 +6,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-
 import java.time.Instant;
 
 @Entity
@@ -36,6 +35,9 @@ public class ProjectEntity {
 
     @Column(nullable = false, columnDefinition = "TEXT")
     private String capabilitiesJson;
+
+    @Column(nullable = false, columnDefinition = "TEXT")
+    private String extractionConfigJson;
 
     @Column(nullable = false)
     private Instant createdAt;
@@ -110,5 +112,13 @@ public class ProjectEntity {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getExtractionConfigJson() {
+        return extractionConfigJson;
+    }
+
+    public void setExtractionConfigJson(String extractionConfigJson) {
+        this.extractionConfigJson = extractionConfigJson;
     }
 }
